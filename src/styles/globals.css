@@ -209,6 +209,15 @@ a:hover {
   font-weight: 600;
 }
 
+.countdown-provisional-note {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-style: italic;
+  margin-top: -0.25rem;
+  margin-bottom: 0.25rem;
+  text-align: center;
+}
+
 .countdown-boxes {
   display: flex;
   gap: 1rem;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentAdminUser } from "@/lib/auth/session";
+import { getCurrentAdminUser, validateCsrfProtection } from "@/lib/auth/session";
 import { EventStatus, Role } from "@prisma/client";
 
 const publishSchema = z.object({
@@ -10,9 +10,22 @@ const publishSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  // CSRF validation on mutation
+  if (!validateCsrfProtection(request)) {
+    return NextResponse.json({ error: "Invalid or missing CSRF origin header." }, { status: 403 });
+  }
+
   const admin = await getCurrentAdminUser(request);
-  if (!admin || (admin.role !== Role.SUPER_ADMIN && admin.role !== Role.EVENT_ADMIN)) {
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Publishing requires SUPER_ADMIN privilege (distinguishing from EVENT_ADMIN)
+  if (admin.role !== Role.SUPER_ADMIN) {
+    return NextResponse.json(
+      { error: "Forbidden. Event publication status can only be modified by Super Administrators." },
+      { status: 403 }
+    );
   }
 
   try {
@@ -33,22 +46,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const updatedEvent = await prisma.event.update({
-      where: { id },
-      data: { status },
-    });
+    // Atomic transaction: event status update + audit log
+    const updatedEvent = await prisma.$transaction(async (tx) => {
+      const event = await tx.event.update({
+        where: { id },
+        data: { status },
+      });
 
-    await prisma.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: "CHANGE_EVENT_STATUS",
-        entity: "Event",
-        entityId: id,
-        details: {
-          previousStatus: existingEvent.status,
-          newStatus: status,
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: "CHANGE_EVENT_STATUS",
+          entity: "Event",
+          entityId: id,
+          details: {
+            previousStatus: existingEvent.status,
+            newStatus: status,
+          },
         },
-      },
+      });
+
+      return event;
     });
 
     return NextResponse.json({

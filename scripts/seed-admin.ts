@@ -17,11 +17,11 @@ export async function bootstrapAdmin(options?: SeedAdminOptions) {
   try {
     const email = (options?.email || process.env.INITIAL_ADMIN_EMAIL || "admin@nuasknust.org").trim().toLowerCase();
     const name = (options?.name || process.env.INITIAL_ADMIN_NAME || "NUAS Executive Super Admin").trim();
-    const password = options?.password || process.env.INITIAL_ADMIN_PASSWORD || "AdminSecurePassword2026!";
+    const password = options?.password || process.env.INITIAL_ADMIN_PASSWORD;
     const forceReset = options?.forceReset ?? process.argv.includes("--force-reset");
 
     if (!email || !password) {
-      throw new Error("INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD must be configured.");
+      throw new Error("INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD must be configured in environment variables.");
     }
 
     // Check if user already exists

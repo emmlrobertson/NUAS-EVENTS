@@ -75,6 +75,7 @@ model User {
   name         String
   role         Role        @default(CHECKIN_AGENT)
   isActive     Boolean     @default(true)
+  tokenVersion Int         @default(1) // Incremented to revoke existing sessions on logout/reset
   lastLoginAt  DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -138,6 +139,7 @@ model Category {
   description  String?
   displayOrder Int          @default(0)
   isActive     Boolean      @default(true)
+  isApproved   Boolean      @default(false) // Explicit approval required for public visibility
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -145,6 +147,7 @@ model Category {
   nominees     Nominee[]
 
   @@index([eventId, displayOrder])
+  @@index([eventId, isActive, isApproved])
   @@map("categories")
 }
 
@@ -158,6 +161,7 @@ model Nominee {
   verifiedVotes  Int              @default(0) // Read-heavy counter incremented atomically
   displayOrder   Int              @default(0)
   isActive       Boolean          @default(true)
+  isApproved     Boolean          @default(false) // Explicit approval required for public visibility
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -165,6 +169,7 @@ model Nominee {
   voteAllocations VoteAllocation[]
 
   @@index([categoryId, displayOrder])
+  @@index([categoryId, isActive, isApproved])
   @@map("nominees")
 }
 

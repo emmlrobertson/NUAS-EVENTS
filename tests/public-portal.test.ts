@@ -72,6 +72,7 @@ describe("Public Portal Data Access & Publishing Isolation", () => {
         title: "[TEST] Published Category",
         displayOrder: 1,
         isActive: true,
+        isApproved: true, // Explicitly approved
       },
     });
 
@@ -84,6 +85,19 @@ describe("Public Portal Data Access & Publishing Isolation", () => {
         bio: "Dedicated executive member.",
         verifiedVotes: 50,
         isActive: true,
+        isApproved: true, // Explicitly approved
+      },
+    });
+
+    // Active but UNAPPROVED nominee under published category
+    await prisma.nominee.create({
+      data: {
+        categoryId: publishedCategory.id,
+        nomineeCode: "PUB-NOM-UNAPPROVED",
+        name: "Unapproved Pending Review",
+        verifiedVotes: 0,
+        isActive: true,
+        isApproved: false, // NOT APPROVED
       },
     });
 
@@ -92,9 +106,10 @@ describe("Public Portal Data Access & Publishing Isolation", () => {
       data: {
         categoryId: publishedCategory.id,
         nomineeCode: "PUB-NOM-INACTIVE",
-        name: "Unapproved Nominee",
+        name: "Inactive Nominee",
         verifiedVotes: 10,
         isActive: false, // Inactive!
+        isApproved: true,
       },
     });
   });
@@ -153,6 +168,11 @@ describe("Public Portal Data Access & Publishing Isolation", () => {
 
   it("refuses to retrieve inactive nominees even under a published event", async () => {
     const nominee = await getApprovedNomineeByCode("PUB-NOM-INACTIVE");
+    expect(nominee).toBeNull();
+  });
+
+  it("refuses to retrieve unapproved nominees even when active and event is published", async () => {
+    const nominee = await getApprovedNomineeByCode("PUB-NOM-UNAPPROVED");
     expect(nominee).toBeNull();
   });
 });

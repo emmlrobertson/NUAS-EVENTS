@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentAdminUser } from "@/lib/auth/session";
+import { getCurrentAdminUser, validateCsrfProtection } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 
 const categorySchema = z.object({
@@ -11,6 +11,7 @@ const categorySchema = z.object({
   description: z.string().optional().nullable(),
   displayOrder: z.number().int().default(0),
   isActive: z.boolean().default(true),
+  isApproved: z.boolean().default(false), // Explicit approval flag
 });
 
 export async function GET(request: Request) {
@@ -36,6 +37,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // CSRF validation on mutation
+  if (!validateCsrfProtection(request)) {
+    return NextResponse.json({ error: "Invalid or missing CSRF origin header." }, { status: 403 });
+  }
+
   const admin = await getCurrentAdminUser(request);
   if (!admin || (admin.role !== Role.SUPER_ADMIN && admin.role !== Role.EVENT_ADMIN)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -52,42 +58,48 @@ export async function POST(request: Request) {
       );
     }
 
-    const { id, eventId, title, description, displayOrder, isActive } = parsed.data;
+    const { id, eventId, title, description, displayOrder, isActive, isApproved } = parsed.data;
 
-    let category;
-    let action = "CREATE_CATEGORY";
+    const action = id ? "UPDATE_CATEGORY" : "CREATE_CATEGORY";
 
-    if (id) {
-      category = await prisma.category.update({
-        where: { id },
+    // Atomic transaction: category write + audit log
+    const category = await prisma.$transaction(async (tx) => {
+      let cat;
+      if (id) {
+        cat = await tx.category.update({
+          where: { id },
+          data: {
+            title,
+            description,
+            displayOrder,
+            isActive,
+            isApproved,
+          },
+        });
+      } else {
+        cat = await tx.category.create({
+          data: {
+            eventId,
+            title,
+            description,
+            displayOrder,
+            isActive,
+            isApproved,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
         data: {
-          title,
-          description,
-          displayOrder,
-          isActive,
+          userId: admin.id,
+          action,
+          entity: "Category",
+          entityId: cat.id,
+          details: { title, displayOrder, isActive, isApproved, eventId },
         },
       });
-      action = "UPDATE_CATEGORY";
-    } else {
-      category = await prisma.category.create({
-        data: {
-          eventId,
-          title,
-          description,
-          displayOrder,
-          isActive,
-        },
-      });
-    }
 
-    await prisma.auditLog.create({
-      data: {
-        userId: admin.id,
-        action,
-        entity: "Category",
-        entityId: category.id,
-        details: { title, displayOrder, isActive, eventId },
-      },
+      return cat;
     });
 
     return NextResponse.json({ success: true, category });

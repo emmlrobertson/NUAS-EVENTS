@@ -31,7 +31,10 @@ function calculateTimeRemaining(targetTimestamp: number): TimeRemaining {
   return { days, hours, minutes, seconds, isPast: false };
 }
 
-export default function Countdown({ targetDateIso, label = "Event Countdown" }: CountdownProps) {
+export default function Countdown({
+  targetDateIso,
+  label = "Countdown to Saturday, 21 November 2026",
+}: CountdownProps) {
   const targetTimestamp = new Date(targetDateIso).getTime();
   const [mounted, setMounted] = useState(false);
   const [timeLeft, setTimeLeft] = useState<TimeRemaining>({
@@ -58,6 +61,9 @@ export default function Countdown({ targetDateIso, label = "Event Countdown" }: 
     return (
       <div className="countdown-container">
         <p className="countdown-label">{label}</p>
+        <span className="countdown-provisional-note">
+          Date-only provisional countdown • Official event start time to be announced
+        </span>
         <div className="countdown-boxes">
           <div className="countdown-box"><span className="countdown-value">--</span><span className="countdown-unit">Days</span></div>
           <div className="countdown-box"><span className="countdown-value">--</span><span className="countdown-unit">Hours</span></div>
@@ -80,6 +86,9 @@ export default function Countdown({ targetDateIso, label = "Event Countdown" }: 
   return (
     <div className="countdown-container">
       <p className="countdown-label">{label}</p>
+      <span className="countdown-provisional-note">
+        Date-only provisional countdown • Official event start time to be announced
+      </span>
       <div className="countdown-boxes" role="timer" aria-label={label}>
         <div className="countdown-box">
           <span className="countdown-value">{String(timeLeft.days).padStart(2, "0")}</span>

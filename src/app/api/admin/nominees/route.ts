@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentAdminUser } from "@/lib/auth/session";
+import { getCurrentAdminUser, validateCsrfProtection } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 
 const nomineeSchema = z.object({
@@ -13,6 +13,7 @@ const nomineeSchema = z.object({
   nomineeCode: z.string().min(2).max(20).toUpperCase(),
   displayOrder: z.number().int().default(0),
   isActive: z.boolean().default(true),
+  isApproved: z.boolean().default(false), // Explicit approval flag
 });
 
 export async function GET(request: Request) {
@@ -44,6 +45,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // CSRF validation on mutation
+  if (!validateCsrfProtection(request)) {
+    return NextResponse.json({ error: "Invalid or missing CSRF origin header." }, { status: 403 });
+  }
+
   const admin = await getCurrentAdminUser(request);
   if (!admin || (admin.role !== Role.SUPER_ADMIN && admin.role !== Role.EVENT_ADMIN)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -60,7 +66,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { id, categoryId, name, bio, avatarUrl, nomineeCode, displayOrder, isActive } = parsed.data;
+    const { id, categoryId, name, bio, avatarUrl, nomineeCode, displayOrder, isActive, isApproved } = parsed.data;
 
     // Check unique nomineeCode
     const existingWithCode = await prisma.nominee.findFirst({
@@ -77,45 +83,51 @@ export async function POST(request: Request) {
       );
     }
 
-    let nominee;
-    let action = "CREATE_NOMINEE";
+    const action = id ? "UPDATE_NOMINEE" : "CREATE_NOMINEE";
 
-    if (id) {
-      nominee = await prisma.nominee.update({
-        where: { id },
+    // Atomic transaction: nominee write + audit log
+    const nominee = await prisma.$transaction(async (tx) => {
+      let nom;
+      if (id) {
+        nom = await tx.nominee.update({
+          where: { id },
+          data: {
+            categoryId,
+            name,
+            bio,
+            avatarUrl: avatarUrl || null,
+            nomineeCode,
+            displayOrder,
+            isActive,
+            isApproved,
+          },
+        });
+      } else {
+        nom = await tx.nominee.create({
+          data: {
+            categoryId,
+            name,
+            bio,
+            avatarUrl: avatarUrl || null,
+            nomineeCode,
+            displayOrder,
+            isActive,
+            isApproved,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
         data: {
-          categoryId,
-          name,
-          bio,
-          avatarUrl: avatarUrl || null,
-          nomineeCode,
-          displayOrder,
-          isActive,
+          userId: admin.id,
+          action,
+          entity: "Nominee",
+          entityId: nom.id,
+          details: { name, nomineeCode, categoryId, isActive, isApproved },
         },
       });
-      action = "UPDATE_NOMINEE";
-    } else {
-      nominee = await prisma.nominee.create({
-        data: {
-          categoryId,
-          name,
-          bio,
-          avatarUrl: avatarUrl || null,
-          nomineeCode,
-          displayOrder,
-          isActive,
-        },
-      });
-    }
 
-    await prisma.auditLog.create({
-      data: {
-        userId: admin.id,
-        action,
-        entity: "Nominee",
-        entityId: nominee.id,
-        details: { name, nomineeCode, categoryId, isActive },
-      },
+      return nom;
     });
 
     return NextResponse.json({ success: true, nominee });

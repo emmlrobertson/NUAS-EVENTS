@@ -50,6 +50,7 @@ export async function getPublishedEvent(): Promise<PublicEvent | null> {
       categories: {
         where: {
           isActive: true,
+          isApproved: true,
         },
         orderBy: {
           displayOrder: "asc",
@@ -58,6 +59,7 @@ export async function getPublishedEvent(): Promise<PublicEvent | null> {
           nominees: {
             where: {
               isActive: true,
+              isApproved: true,
             },
             orderBy: {
               displayOrder: "asc",
@@ -117,15 +119,17 @@ export async function getPublishedEvent(): Promise<PublicEvent | null> {
 
 /**
  * Retrieves an approved nominee by their unique code.
- * Strictly verifies that the nominee is active and belongs to an active category under a PUBLISHED event.
+ * Strictly verifies that the nominee is approved and active and belongs to an approved, active category under a PUBLISHED event.
  */
 export async function getApprovedNomineeByCode(code: string): Promise<PublicNominee | null> {
   const nominee = await prisma.nominee.findFirst({
     where: {
       nomineeCode: code,
       isActive: true,
+      isApproved: true,
       category: {
         isActive: true,
+        isApproved: true,
         event: {
           status: EventStatus.PUBLISHED,
         },

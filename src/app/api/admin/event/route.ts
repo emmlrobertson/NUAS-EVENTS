@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentAdminUser } from "@/lib/auth/session";
+import { getCurrentAdminUser, validateCsrfProtection } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 
 const updateEventSchema = z.object({
@@ -38,9 +38,21 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  // CSRF validation on mutation
+  if (!validateCsrfProtection(request)) {
+    return NextResponse.json({ error: "Invalid or missing CSRF origin header." }, { status: 403 });
+  }
+
   const admin = await getCurrentAdminUser(request);
-  if (!admin || (admin.role !== Role.SUPER_ADMIN && admin.role !== Role.EVENT_ADMIN)) {
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (admin.role !== Role.SUPER_ADMIN) {
+    return NextResponse.json(
+      { error: "Forbidden. Event configuration details can only be modified by Super Administrators." },
+      { status: 403 }
+    );
   }
 
   try {
@@ -61,39 +73,43 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const updatedEvent = await prisma.event.update({
-      where: { id },
-      data: {
-        title,
-        theme,
-        venue,
-        eventDate: new Date(eventDate),
-        votingStartDate: new Date(votingStartDate),
-        votingEndDate: new Date(votingEndDate),
-        latePaymentGraceMinutes,
-      },
-    });
+    // Atomic transaction: event update + audit log
+    const updatedEvent = await prisma.$transaction(async (tx) => {
+      const event = await tx.event.update({
+        where: { id },
+        data: {
+          title,
+          theme,
+          venue,
+          eventDate: new Date(eventDate),
+          votingStartDate: new Date(votingStartDate),
+          votingEndDate: new Date(votingEndDate),
+          latePaymentGraceMinutes,
+        },
+      });
 
-    // Write audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: "UPDATE_EVENT_DETAILS",
-        entity: "Event",
-        entityId: id,
-        details: {
-          previous: {
-            title: existingEvent.title,
-            venue: existingEvent.venue,
-            theme: existingEvent.theme,
-          },
-          updated: {
-            title,
-            venue,
-            theme,
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: "UPDATE_EVENT_DETAILS",
+          entity: "Event",
+          entityId: id,
+          details: {
+            previous: {
+              title: existingEvent.title,
+              venue: existingEvent.venue,
+              theme: existingEvent.theme,
+            },
+            updated: {
+              title,
+              venue,
+              theme,
+            },
           },
         },
-      },
+      });
+
+      return event;
     });
 
     return NextResponse.json({ success: true, event: updatedEvent });
