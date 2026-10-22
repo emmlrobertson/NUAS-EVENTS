@@ -1,0 +1,373 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------
+// ENUMS & TYPES
+// ----------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  EVENT_ADMIN
+  CHECKIN_AGENT
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  VOTING_CLOSED
+  EVENT_CONCLUDED
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  QUARANTINED
+  INVENTORY_SHORTAGE_EXCEPTION
+  REFUNDED
+}
+
+enum OrderType {
+  VOTING
+  TICKET
+}
+
+enum TicketStatus {
+  ISSUED
+  CHECKED_IN
+  VOIDED
+}
+
+enum LatePaymentPolicy {
+  STRICT_REJECT
+  ACCEPT_IF_INITIATED_BEFORE_DEADLINE
+  MANUAL_QUARANTINE
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  HUBTEL
+  SANDBOX_MOCK
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ----------------------------------------------------
+// ACCESS CONTROL & AUDITING
+// ----------------------------------------------------
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  passwordHash String
+  name         String
+  role         Role        @default(CHECKIN_AGENT)
+  isActive     Boolean     @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  checkIns     CheckIn[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String   // e.g. "BOOTSTRAP_ADMIN", "UPDATE_DEADLINE", "QUARANTINE_RESOLVE"
+  entity      String   // e.g. "User", "Event", "VotingOrder", "IssuedTicket"
+  entityId    String
+  details     Json?    // Structured diff of changes (excluding sensitive PII)
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ----------------------------------------------------
+// EVENT & AWARDS CONFIGURATION
+// ----------------------------------------------------
+
+model Event {
+  id                      String            @id @default(cuid())
+  slug                    String            @unique
+  title                   String
+  theme                   String?
+  venue                   String            // To be confirmed by organizer
+  eventDate               DateTime          // 21 November 2026
+  votingStartDate         DateTime
+  votingEndDate           DateTime
+  latePaymentGraceMinutes Int               @default(15) // Window for in-flight MoMo approvals
+  latePaymentPolicy       LatePaymentPolicy @default(MANUAL_QUARANTINE)
+  status                  EventStatus       @default(DRAFT) // Seed data must remain DRAFT
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+
+  categories              Category[]
+  ticketTypes             TicketType[]
+  votingOrders            VotingOrder[]
+  ticketOrders            TicketOrder[]
+
+  @@index([status])
+  @@map("events")
+}
+
+model Category {
+  id           String       @id @default(cuid())
+  eventId      String
+  title        String       // To be confirmed by organizer
+  description  String?
+  displayOrder Int          @default(0)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  nominees     Nominee[]
+
+  @@index([eventId, displayOrder])
+  @@map("categories")
+}
+
+model Nominee {
+  id             String           @id @default(cuid())
+  categoryId     String
+  name           String           // To be confirmed by organizer
+  bio            String?
+  avatarUrl      String?
+  nomineeCode    String           @unique
+  verifiedVotes  Int              @default(0) // Read-heavy counter incremented atomically
+  displayOrder   Int              @default(0)
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  category       Category         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  voteAllocations VoteAllocation[]
+
+  @@index([categoryId, displayOrder])
+  @@map("nominees")
+}
+
+// ----------------------------------------------------
+// VOTING SUBSYSTEM
+// ----------------------------------------------------
+
+model VotingOrder {
+  id                   String            @id @default(cuid())
+  orderNumber          String            @unique // e.g. VOTE-261121-ABC123
+  eventId              String
+  voterPhone           String            // Masked in audit logs: e.g. +233****5678
+  voterEmail           String?
+  totalVotes           Int               // Sum of all allocations
+  unitPriceInPesewas   Int               @default(150) // Fixed: GH₵1.50 = 150 pesewas
+  totalAmountInPesewas Int               // totalVotes * 150 (computed server-side)
+  status               OrderStatus       @default(PENDING)
+  quarantineReason     String?           // Recorded if status becomes QUARANTINED
+  initiatedAt          DateTime          @default(now())
+  paidAt               DateTime?
+  updatedAt            DateTime          @updatedAt
+
+  event                Event             @relation(fields: [eventId], references: [id])
+  allocations          VoteAllocation[]
+  transactions         PaymentTransaction[]
+  emails               EmailOutbox[]
+
+  @@index([eventId, status])
+  @@index([initiatedAt])
+  @@map("voting_orders")
+}
+
+model VoteAllocation {
+  id                String       @id @default(cuid())
+  votingOrderId     String
+  nomineeId         String
+  numberOfVotes     Int          // >= 1
+  subtotalInPesewas Int          // numberOfVotes * 150
+  createdAt         DateTime     @default(now())
+
+  votingOrder       VotingOrder  @relation(fields: [votingOrderId], references: [id], onDelete: Cascade)
+  nominee           Nominee      @relation(fields: [nomineeId], references: [id])
+
+  @@index([votingOrderId])
+  @@index([nomineeId])
+  @@map("vote_allocations")
+}
+
+// ----------------------------------------------------
+// DINNER TICKETING SUBSYSTEM
+// ----------------------------------------------------
+
+model TicketType {
+  id               String       @id @default(cuid())
+  eventId          String
+  name             String       // e.g. Single, Couple, VIP (To be confirmed by organizer)
+  description      String?
+  priceInPesewas   Int          // In integer pesewas (To be confirmed by organizer)
+  totalCapacity    Int          // Hard venue quota
+  soldQuantity     Int          @default(0)
+  reservedQuantity Int          @default(0) // Active pending reservations
+  salesStart       DateTime
+  salesEnd         DateTime
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  event            Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orderItems       TicketOrderItem[]
+  issuedTickets    IssuedTicket[]
+
+  @@index([eventId, isActive])
+  @@map("ticket_types")
+}
+
+model TicketOrder {
+  id                   String             @id @default(cuid())
+  orderNumber          String             @unique // e.g. TKT-261121-XYZ789
+  eventId              String
+  buyerName            String
+  buyerEmail           String
+  buyerPhone           String
+  totalAmountInPesewas Int                // Server-computed total in pesewas
+  status               OrderStatus        @default(PENDING)
+  reservationExpiresAt DateTime           // initiatedAt + 15 minutes hold
+  paidAt               DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  event                Event              @relation(fields: [eventId], references: [id])
+  items                TicketOrderItem[]
+  issuedTickets        IssuedTicket[]
+  transactions         PaymentTransaction[]
+  emails               EmailOutbox[]
+
+  @@index([eventId, status])
+  @@index([reservationExpiresAt])
+  @@map("ticket_orders")
+}
+
+model TicketOrderItem {
+  id                String       @id @default(cuid())
+  ticketOrderId     String
+  ticketTypeId      String
+  quantity          Int          // Number of tickets
+  unitPriceInPesewas Int         // Snapshotted at order creation
+  subtotalInPesewas Int
+
+  ticketOrder       TicketOrder  @relation(fields: [ticketOrderId], references: [id], onDelete: Cascade)
+  ticketType        TicketType   @relation(fields: [ticketTypeId], references: [id])
+
+  @@index([ticketOrderId])
+  @@map("ticket_order_items")
+}
+
+model IssuedTicket {
+  id             String        @id @default(cuid())
+  ticketNumber   String        @unique // Human-readable e.g. NUAS-26-0042
+  ticketOrderId  String
+  ticketTypeId   String
+  attendeeName   String
+  attendeeEmail  String?
+  qrSecurityHash String        @unique // HMAC-SHA256 signature token
+  status         TicketStatus  @default(ISSUED)
+  issuedAt       DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  ticketOrder    TicketOrder   @relation(fields: [ticketOrderId], references: [id], onDelete: Cascade)
+  ticketType     TicketType    @relation(fields: [ticketTypeId], references: [id])
+  checkIns       CheckIn[]
+
+  @@index([qrSecurityHash])
+  @@map("issued_tickets")
+}
+
+model CheckIn {
+  id             String       @id @default(cuid())
+  issuedTicketId String
+  scannedById    String
+  scannedAt      DateTime     @default(now())
+  deviceInfo     String?
+  gateLocation   String?
+
+  issuedTicket   IssuedTicket @relation(fields: [issuedTicketId], references: [id], onDelete: Cascade)
+  scannedBy      User         @relation(fields: [scannedById], references: [id])
+
+  @@index([issuedTicketId])
+  @@index([scannedAt])
+  @@map("check_ins")
+}
+
+// ----------------------------------------------------
+// PAYMENT TRANSACTIONS & IDEMPOTENCY
+// ----------------------------------------------------
+
+model PaymentTransaction {
+  id                 String          @id @default(cuid())
+  reference          String          @unique // System reference passed to gateway
+  gateway            PaymentProvider
+  gatewayReference   String?         // External provider transaction ID
+  orderType          OrderType       // Binds explicitly to either VOTING or TICKET
+  votingOrderId      String?
+  ticketOrderId      String?
+  amountInPesewas    Int
+  currency           String          @default("GHS")
+  status             OrderStatus     @default(PENDING)
+  rawWebhookPayload  Json?
+  idempotencyKey     String          @unique // Hash of (gateway + gatewayReference + eventType)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  votingOrder        VotingOrder?    @relation(fields: [votingOrderId], references: [id])
+  ticketOrder        TicketOrder?    @relation(fields: [ticketOrderId], references: [id])
+
+  @@unique([gateway, gatewayReference])
+  @@index([votingOrderId])
+  @@index([ticketOrderId])
+  @@map("payment_transactions")
+}
+
+// ----------------------------------------------------
+// PERSISTENT EMAIL OUTBOX (DECOUPLED RETRY LOG)
+// ----------------------------------------------------
+
+model EmailOutbox {
+  id            String       @id @default(cuid())
+  recipient     String
+  subject       String
+  template      String       // e.g. "TICKET_RECEIPT", "VOTING_RECEIPT"
+  payload       Json         // Context data used to render the email
+  status        EmailStatus  @default(PENDING)
+  attempts      Int          @default(0)
+  lastError     String?
+  sentAt        DateTime?
+  votingOrderId String?
+  ticketOrderId String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  votingOrder   VotingOrder? @relation(fields: [votingOrderId], references: [id], onDelete: SetNull)
+  ticketOrder   TicketOrder? @relation(fields: [ticketOrderId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_outbox")
+}
