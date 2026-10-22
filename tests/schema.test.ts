@@ -1,39 +1,51 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
-  PrismaClient,
   EventStatus,
   OrderStatus,
   OrderType,
   PaymentProvider,
   EmailStatus,
 } from "@prisma/client";
-
-const testDbUrl =
-  process.env.TEST_DATABASE_URL ||
-  "postgresql://postgres:Fafali2%40%23@localhost:5432/nuas_awards_test?schema=public";
-
-const prisma = new PrismaClient({
-  datasources: {
-    db: { url: testDbUrl },
-  },
-});
+import { prisma } from "../src/lib/prisma";
 
 describe("Schema Constraints & Idempotency Rules", () => {
   let testEventId: string;
 
   beforeAll(async () => {
-    // Clean up test database tables
-    await prisma.emailOutbox.deleteMany();
-    await prisma.paymentTransaction.deleteMany();
-    await prisma.voteAllocation.deleteMany();
-    await prisma.votingOrder.deleteMany();
-    await prisma.checkIn.deleteMany();
-    await prisma.issuedTicket.deleteMany();
-    await prisma.ticketOrderItem.deleteMany();
-    await prisma.ticketOrder.deleteMany();
-    await prisma.ticketType.deleteMany();
-    await prisma.nominee.deleteMany();
-    await prisma.category.deleteMany();
+    // Clean up only schema test event records
+    await prisma.emailOutbox.deleteMany({
+      where: { votingOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.paymentTransaction.deleteMany({
+      where: { votingOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.voteAllocation.deleteMany({
+      where: { votingOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.votingOrder.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
+    await prisma.checkIn.deleteMany({
+      where: { issuedTicket: { ticketOrder: { event: { slug: "schema-test-event" } } } },
+    });
+    await prisma.issuedTicket.deleteMany({
+      where: { ticketOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.ticketOrderItem.deleteMany({
+      where: { ticketOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.ticketOrder.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
+    await prisma.ticketType.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
+    await prisma.nominee.deleteMany({
+      where: { category: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.category.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
     await prisma.event.deleteMany({
       where: { slug: "schema-test-event" },
     });
@@ -53,17 +65,39 @@ describe("Schema Constraints & Idempotency Rules", () => {
   });
 
   afterAll(async () => {
-    await prisma.emailOutbox.deleteMany();
-    await prisma.paymentTransaction.deleteMany();
-    await prisma.voteAllocation.deleteMany();
-    await prisma.votingOrder.deleteMany();
-    await prisma.checkIn.deleteMany();
-    await prisma.issuedTicket.deleteMany();
-    await prisma.ticketOrderItem.deleteMany();
-    await prisma.ticketOrder.deleteMany();
-    await prisma.ticketType.deleteMany();
-    await prisma.nominee.deleteMany();
-    await prisma.category.deleteMany();
+    await prisma.emailOutbox.deleteMany({
+      where: { votingOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.paymentTransaction.deleteMany({
+      where: { votingOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.voteAllocation.deleteMany({
+      where: { votingOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.votingOrder.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
+    await prisma.checkIn.deleteMany({
+      where: { issuedTicket: { ticketOrder: { event: { slug: "schema-test-event" } } } },
+    });
+    await prisma.issuedTicket.deleteMany({
+      where: { ticketOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.ticketOrderItem.deleteMany({
+      where: { ticketOrder: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.ticketOrder.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
+    await prisma.ticketType.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
+    await prisma.nominee.deleteMany({
+      where: { category: { event: { slug: "schema-test-event" } } },
+    });
+    await prisma.category.deleteMany({
+      where: { event: { slug: "schema-test-event" } },
+    });
     await prisma.event.deleteMany({
       where: { slug: "schema-test-event" },
     });
@@ -95,12 +129,18 @@ describe("Schema Constraints & Idempotency Rules", () => {
   it("enforces unique constraint on PaymentTransaction idempotencyKey", async () => {
     const idempotencyKey = "hash-paystack-txn12345-charge.success";
 
+    const order = await prisma.votingOrder.findFirst({
+      where: { orderNumber: "VOTE-TEST-001" },
+    });
+    expect(order).toBeDefined();
+
     await prisma.paymentTransaction.create({
       data: {
         reference: "SYS-REF-001",
         gateway: PaymentProvider.PAYSTACK,
         gatewayReference: "GATEWAY-REF-001",
         orderType: OrderType.VOTING,
+        votingOrderId: order!.id,
         amountInPesewas: 1500,
         status: OrderStatus.PAID,
         idempotencyKey,
@@ -115,6 +155,7 @@ describe("Schema Constraints & Idempotency Rules", () => {
           gateway: PaymentProvider.PAYSTACK,
           gatewayReference: "GATEWAY-REF-002",
           orderType: OrderType.VOTING,
+          votingOrderId: order!.id,
           amountInPesewas: 1500,
           status: OrderStatus.PAID,
           idempotencyKey, // DUPLICATE KEY
@@ -124,6 +165,10 @@ describe("Schema Constraints & Idempotency Rules", () => {
   });
 
   it("enforces unique constraint on gateway and gatewayReference pair", async () => {
+    const order = await prisma.votingOrder.findFirst({
+      where: { orderNumber: "VOTE-TEST-001" },
+    });
+
     await expect(
       prisma.paymentTransaction.create({
         data: {
@@ -131,9 +176,28 @@ describe("Schema Constraints & Idempotency Rules", () => {
           gateway: PaymentProvider.PAYSTACK,
           gatewayReference: "GATEWAY-REF-001", // Already used in previous test
           orderType: OrderType.VOTING,
+          votingOrderId: order!.id,
           amountInPesewas: 1500,
           status: OrderStatus.PAID,
           idempotencyKey: "different-idempotency-key-003",
+        },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("enforces database-level CHECK constraint on exclusive order binding", async () => {
+    // Attempting to create a transaction with orderType: VOTING without votingOrderId must fail
+    await expect(
+      prisma.paymentTransaction.create({
+        data: {
+          reference: "SYS-REF-INVALID-001",
+          gateway: PaymentProvider.PAYSTACK,
+          gatewayReference: "GATEWAY-REF-INV-001",
+          orderType: OrderType.VOTING,
+          // votingOrderId is missing!
+          amountInPesewas: 1500,
+          status: OrderStatus.PAID,
+          idempotencyKey: "key-inv-001",
         },
       })
     ).rejects.toThrow();

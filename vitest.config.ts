@@ -6,7 +6,8 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["tests/**/*.test.ts"],
-    testTimeout: 15000,
+    testTimeout: 20000,
+    fileParallelism: false, // Ensures sequential execution of database test suites
   },
   resolve: {
     alias: {

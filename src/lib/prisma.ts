@@ -6,11 +6,17 @@ declare global {
 }
 
 export function createPrismaClient(databaseUrl?: string): PrismaClient {
+  const url =
+    databaseUrl ||
+    (process.env.NODE_ENV === "test" && process.env.TEST_DATABASE_URL
+      ? process.env.TEST_DATABASE_URL
+      : undefined);
+
   return new PrismaClient({
-    datasources: databaseUrl
+    datasources: url
       ? {
           db: {
-            url: databaseUrl,
+            url,
           },
         }
       : undefined,

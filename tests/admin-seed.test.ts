@@ -1,17 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { PrismaClient, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
+import { prisma } from "../src/lib/prisma";
 import { bootstrapAdmin } from "../scripts/seed-admin";
 import { verifyPassword } from "../src/lib/auth/password";
-
-const testDbUrl =
-  process.env.TEST_DATABASE_URL ||
-  "postgresql://postgres:Fafali2%40%23@localhost:5432/nuas_awards_test?schema=public";
-
-const prisma = new PrismaClient({
-  datasources: {
-    db: { url: testDbUrl },
-  },
-});
 
 describe("Administrator Bootstrap Idempotency", () => {
   const testAdminEmail = "unit-test-admin@nuasknust.org";
