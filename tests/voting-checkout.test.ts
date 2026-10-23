@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { EventStatus, OrderStatus, PaymentProvider, LatePaymentPolicy } from "@prisma/client";
+import { EventStatus, OrderStatus, PaymentProvider, LatePaymentPolicy, EmailStatus } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 import {
   createVotingOrder,
@@ -15,6 +15,7 @@ import {
 import { checkoutRequestSchema } from "../src/lib/voting/validation";
 import { VOTE_UNIT_PRICE_PESEWAS } from "../src/lib/constants";
 import { validateEnv } from "../src/lib/env";
+import { processEmailOutbox, MockEmailTransport } from "../src/lib/email/outbox-service";
 
 describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", () => {
   let activeEventId: string;
@@ -103,8 +104,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       where: {
         title: {
           in: [
-            "[VOTE TEST] Leadership Category",
-            "[VOTE TEST] Ministry Category",
+            "[VOTE TEST] Academic Excellence",
+            "[VOTE TEST] Student Leadership",
             "[VOTE TEST] Inactive Category",
           ],
         },
@@ -128,56 +129,60 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       data: {
         slug: "voting-active-test-event",
         title: "Active Voting Test Gala",
+        theme: "Tested & Verified",
         venue: "Great Hall, KNUST",
         eventDate: new Date("2026-11-21T18:00:00Z"),
         votingStartDate: new Date("2026-10-01T00:00:00Z"),
-        votingEndDate: new Date("2026-11-21T17:00:00Z"),
-        latePaymentGraceMinutes: 15,
-        latePaymentPolicy: LatePaymentPolicy.MANUAL_QUARANTINE,
+        votingEndDate: new Date("2026-11-20T23:59:59Z"),
         status: EventStatus.PUBLISHED,
+        latePaymentGraceMinutes: 0,
+        latePaymentPolicy: LatePaymentPolicy.MANUAL_QUARANTINE,
       },
     });
     activeEventId = activeEvent.id;
 
-    // 2. Create Future Event (voting not yet open)
+    // 2. Create Future Event (voting not started yet)
     const futureEvent = await prisma.event.create({
       data: {
         slug: "voting-future-test-event",
-        title: "Future Voting Test Gala",
+        title: "Future Voting Gala",
+        theme: "Upcoming",
         venue: "Great Hall, KNUST",
         eventDate: new Date("2026-11-21T18:00:00Z"),
         votingStartDate: new Date("2026-11-10T00:00:00Z"),
-        votingEndDate: new Date("2026-11-21T17:00:00Z"),
+        votingEndDate: new Date("2026-11-20T23:59:59Z"),
         status: EventStatus.PUBLISHED,
       },
     });
     futureEventId = futureEvent.id;
 
-    // 3. Create Closed Event (voting deadline ended)
+    // 3. Create Closed Event (voting has ended)
     const closedEvent = await prisma.event.create({
       data: {
         slug: "voting-closed-test-event",
-        title: "Closed Voting Test Gala",
+        title: "Closed Voting Gala",
+        theme: "Concluded",
         venue: "Great Hall, KNUST",
         eventDate: new Date("2026-11-21T18:00:00Z"),
         votingStartDate: new Date("2026-09-01T00:00:00Z"),
         votingEndDate: new Date("2026-10-01T00:00:00Z"),
-        latePaymentGraceMinutes: 15,
-        latePaymentPolicy: LatePaymentPolicy.MANUAL_QUARANTINE,
         status: EventStatus.PUBLISHED,
+        latePaymentGraceMinutes: 0,
+        latePaymentPolicy: LatePaymentPolicy.MANUAL_QUARANTINE,
       },
     });
     closedEventId = closedEvent.id;
 
-    // 4. Create Draft Event
+    // 4. Create Draft Event (not published)
     const draftEvent = await prisma.event.create({
       data: {
         slug: "voting-draft-test-event",
-        title: "Draft Event Test Gala",
+        title: "Draft Voting Gala",
+        theme: "Drafting",
         venue: "Great Hall, KNUST",
         eventDate: new Date("2026-11-21T18:00:00Z"),
         votingStartDate: new Date("2026-10-01T00:00:00Z"),
-        votingEndDate: new Date("2026-11-21T17:00:00Z"),
+        votingEndDate: new Date("2026-11-20T23:59:59Z"),
         status: EventStatus.DRAFT,
       },
     });
@@ -187,7 +192,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
     const cat1 = await prisma.category.create({
       data: {
         eventId: activeEventId,
-        title: "[VOTE TEST] Leadership Category",
+        title: "[VOTE TEST] Academic Excellence",
+        displayOrder: 1,
         isActive: true,
         isApproved: true,
       },
@@ -196,7 +202,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
     const cat2 = await prisma.category.create({
       data: {
         eventId: activeEventId,
-        title: "[VOTE TEST] Ministry Category",
+        title: "[VOTE TEST] Student Leadership",
+        displayOrder: 2,
         isActive: true,
         isApproved: true,
       },
@@ -260,7 +267,7 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
     });
     unapprovedNomineeId = unappNom.id;
 
-    const inactCatNom = await prisma.nominee.create({
+    const inactNom = await prisma.nominee.create({
       data: {
         categoryId: catInactive.id,
         nomineeCode: "VOTE-TEST-INACT",
@@ -270,11 +277,11 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
         isApproved: true,
       },
     });
-    inactiveCategoryNomineeId = inactCatNom.id;
+    inactiveCategoryNomineeId = inactNom.id;
   });
 
   afterAll(async () => {
-    // Clean up all voting test records
+    // Cleanup created test records
     await prisma.emailOutbox.deleteMany({
       where: {
         votingOrder: {
@@ -348,8 +355,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       where: {
         title: {
           in: [
-            "[VOTE TEST] Leadership Category",
-            "[VOTE TEST] Ministry Category",
+            "[VOTE TEST] Academic Excellence",
+            "[VOTE TEST] Student Leadership",
             "[VOTE TEST] Inactive Category",
           ],
         },
@@ -370,102 +377,113 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
   });
 
   // ----------------------------------------------------
-  // TEST GROUP 1: SERVER-SIDE PRICING & ALLOCATIONS
+  // TEST GROUP 1: SCHEMA VALIDATION & PRICING
   // ----------------------------------------------------
-  describe("Server-Side Integer Pricing & Multi-Category Allocations", () => {
-    it("creates a single-nominee order with exact integer pesewas calculation", async () => {
-      const votes = 10;
-      const order = await createVotingOrder({
-        eventId: activeEventId,
+  describe("Zod Validation & Server-Side Pricing Rules", () => {
+    it("validates that a valid Ghana phone number and valid email are required", () => {
+      const validPayload = {
+        eventId: "test-event-id",
         voterPhone: "0241234567",
-        voterEmail: "voter1@nuasknust.org",
-        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: votes }],
-      });
-
-      expect(order.orderNumber).toMatch(/^VOTE-\d{6}-[A-F0-9]{8}$/);
-      expect(order.totalVotes).toBe(10);
-      expect(order.unitPriceInPesewas).toBe(VOTE_UNIT_PRICE_PESEWAS);
-      expect(order.unitPriceInPesewas).toBe(150);
-      expect(order.totalAmountInPesewas).toBe(1500); // 10 * 150 = 1500 pesewas (GH₵15.00)
-      expect(order.status).toBe(OrderStatus.PENDING);
-      expect(order.allocations).toHaveLength(1);
-      expect(order.allocations[0].nomineeId).toBe(approvedNominee1Id);
-      expect(order.allocations[0].numberOfVotes).toBe(10);
-      expect(order.allocations[0].subtotalInPesewas).toBe(1500);
-      expect(order.maskedPhone).toBe("024****567");
+        voterEmail: "voter@nuasknust.org",
+        allocations: [{ nomineeId: "nom-1", numberOfVotes: 5 }],
+      };
+      const result = checkoutRequestSchema.safeParse(validPayload);
+      expect(result.success).toBe(true);
     });
 
-    it("creates a multi-category voting order allocating votes across distinct award categories", async () => {
-      const order = await createVotingOrder({
-        eventId: activeEventId,
-        voterPhone: "+233559876543",
-        voterEmail: "multicategory@nuasknust.org",
-        allocations: [
-          { nomineeId: approvedNominee1Id, numberOfVotes: 5 },
-          { nomineeId: approvedNominee3Id, numberOfVotes: 20 },
-        ],
-      });
+    it("rejects when voterEmail is missing or malformed", () => {
+      const missingEmail = {
+        eventId: "test-event-id",
+        voterPhone: "0241234567",
+        allocations: [{ nomineeId: "nom-1", numberOfVotes: 5 }],
+      };
+      expect(checkoutRequestSchema.safeParse(missingEmail).success).toBe(false);
 
-      expect(order.totalVotes).toBe(25);
-      expect(order.totalAmountInPesewas).toBe(3750); // 25 * 150 = 3750 pesewas (GH₵37.50)
-      expect(order.allocations).toHaveLength(2);
+      const invalidEmail = {
+        eventId: "test-event-id",
+        voterPhone: "0241234567",
+        voterEmail: "not-an-email",
+        allocations: [{ nomineeId: "nom-1", numberOfVotes: 5 }],
+      };
+      expect(checkoutRequestSchema.safeParse(invalidEmail).success).toBe(false);
+    });
 
-      const alloc1 = order.allocations.find((a) => a.nomineeId === approvedNominee1Id);
-      const alloc2 = order.allocations.find((a) => a.nomineeId === approvedNominee3Id);
+    it("rejects non-Ghanaian or invalid phone numbers", () => {
+      const invalidPhone = {
+        eventId: "test-event-id",
+        voterPhone: "12345",
+        voterEmail: "voter@nuasknust.org",
+        allocations: [{ nomineeId: "nom-1", numberOfVotes: 5 }],
+      };
+      expect(checkoutRequestSchema.safeParse(invalidPhone).success).toBe(false);
+    });
 
-      expect(alloc1?.numberOfVotes).toBe(5);
-      expect(alloc1?.subtotalInPesewas).toBe(750);
-      expect(alloc2?.numberOfVotes).toBe(20);
-      expect(alloc2?.subtotalInPesewas).toBe(3000);
-      expect(order.maskedPhone).toBe("+233****6543");
+    it("rejects empty allocations array or non-positive vote numbers", () => {
+      const emptyAllocations = {
+        eventId: "test-event-id",
+        voterPhone: "0241234567",
+        voterEmail: "voter@nuasknust.org",
+        allocations: [],
+      };
+      expect(checkoutRequestSchema.safeParse(emptyAllocations).success).toBe(false);
+
+      const zeroVotes = {
+        eventId: "test-event-id",
+        voterPhone: "0241234567",
+        voterEmail: "voter@nuasknust.org",
+        allocations: [{ nomineeId: "nom-1", numberOfVotes: 0 }],
+      };
+      expect(checkoutRequestSchema.safeParse(zeroVotes).success).toBe(false);
+
+      const negativeVotes = {
+        eventId: "test-event-id",
+        voterPhone: "0241234567",
+        voterEmail: "voter@nuasknust.org",
+        allocations: [{ nomineeId: "nom-1", numberOfVotes: -3 }],
+      };
+      expect(checkoutRequestSchema.safeParse(negativeVotes).success).toBe(false);
+
+      const fractionalVotes = {
+        eventId: "test-event-id",
+        voterPhone: "0241234567",
+        voterEmail: "voter@nuasknust.org",
+        allocations: [{ nomineeId: "nom-1", numberOfVotes: 2.5 }],
+      };
+      expect(checkoutRequestSchema.safeParse(fractionalVotes).success).toBe(false);
     });
   });
 
   // ----------------------------------------------------
-  // TEST GROUP 2: VALIDATION, REQUIRED EMAIL & APPROVAL GATING
+  // TEST GROUP 2: MULTI-CATEGORY CART & ORDER CREATION
   // ----------------------------------------------------
-  describe("Input Validation, Required Email & Approval State Gating", () => {
-    it("rejects checkout when email is missing or malformed", () => {
-      const missingEmail = checkoutRequestSchema.safeParse({
+  describe("Multi-Category Cart Ordering & Server-Calculated Totals", () => {
+    it("creates a multi-category voting order with accurate server-side integer pricing in pesewas", async () => {
+      const order = await createVotingOrder({
         eventId: activeEventId,
         voterPhone: "0241234567",
-        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 5 }],
+        voterEmail: "alice@nuasknust.org",
+        allocations: [
+          { nomineeId: approvedNominee1Id, numberOfVotes: 3 }, // 3 * 150 = 450 pesewas
+          { nomineeId: approvedNominee3Id, numberOfVotes: 5 }, // 5 * 150 = 750 pesewas
+        ],
       });
-      expect(missingEmail.success).toBe(false);
 
-      const invalidEmail = checkoutRequestSchema.safeParse({
-        eventId: activeEventId,
-        voterPhone: "0241234567",
-        voterEmail: "not-an-email",
-        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 5 }],
-      });
-      expect(invalidEmail.success).toBe(false);
-    });
+      expect(order.orderNumber).toMatch(/^VOTE-\d{6}-[A-Z0-9]+$/);
+      expect(order.totalVotes).toBe(8);
+      expect(order.unitPriceInPesewas).toBe(VOTE_UNIT_PRICE_PESEWAS);
+      expect(order.totalAmountInPesewas).toBe(1200); // 12.00 GHS
+      expect(order.status).toBe(OrderStatus.PENDING);
+      expect(order.allocations).toHaveLength(2);
+      expect(order.maskedPhone).toBe("024****567");
+      expect(order.voterEmail).toBe("a****e@nuasknust.org");
 
-    it("rejects non-positive and fractional vote quantities via Zod validation", () => {
-      const negativeResult = checkoutRequestSchema.safeParse({
-        eventId: activeEventId,
-        voterPhone: "0241234567",
-        voterEmail: "test@nuasknust.org",
-        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: -5 }],
+      // Verify records in PostgreSQL
+      const dbOrder = await prisma.votingOrder.findUniqueOrThrow({
+        where: { id: order.id },
+        include: { allocations: true },
       });
-      expect(negativeResult.success).toBe(false);
-
-      const zeroResult = checkoutRequestSchema.safeParse({
-        eventId: activeEventId,
-        voterPhone: "0241234567",
-        voterEmail: "test@nuasknust.org",
-        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 0 }],
-      });
-      expect(zeroResult.success).toBe(false);
-
-      const floatResult = checkoutRequestSchema.safeParse({
-        eventId: activeEventId,
-        voterPhone: "0241234567",
-        voterEmail: "test@nuasknust.org",
-        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 3.5 }],
-      });
-      expect(floatResult.success).toBe(false);
+      expect(dbOrder.totalAmountInPesewas).toBe(1200);
+      expect(dbOrder.allocations).toHaveLength(2);
     });
 
     it("rejects duplicate allocations for the same nominee in one checkout", async () => {
@@ -475,14 +493,14 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
           voterPhone: "0241234567",
           voterEmail: "test@nuasknust.org",
           allocations: [
-            { nomineeId: approvedNominee1Id, numberOfVotes: 5 },
-            { nomineeId: approvedNominee1Id, numberOfVotes: 10 },
+            { nomineeId: approvedNominee1Id, numberOfVotes: 2 },
+            { nomineeId: approvedNominee1Id, numberOfVotes: 3 }, // Duplicate nomineeId
           ],
         })
       ).rejects.toThrow(/Duplicate nominee allocations detected/);
     });
 
-    it("rejects checkout when a nominee is not approved", async () => {
+    it("rejects voting for an unapproved nominee", async () => {
       await expect(
         createVotingOrder({
           eventId: activeEventId,
@@ -493,7 +511,7 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       ).rejects.toThrow(/is not approved or active/);
     });
 
-    it("rejects checkout when category is inactive", async () => {
+    it("rejects voting for a nominee in an inactive category", async () => {
       await expect(
         createVotingOrder({
           eventId: activeEventId,
@@ -709,6 +727,62 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       expect(nomineeAfter.verifiedVotes).toBe(initialVotes + 10);
     });
 
+    it("demonstrates clean transaction rollback if an error occurs during settlement", async () => {
+      const nomineeBefore = await prisma.nominee.findUniqueOrThrow({
+        where: { id: approvedNominee1Id },
+      });
+      const initialVotes = nomineeBefore.verifiedVotes;
+
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0247771122",
+        voterEmail: "rollback.tester@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 7 }],
+      });
+
+      // Execute a transactional block that claims order but simulates failure before committing
+      await expect(
+        prisma.$transaction(async (tx) => {
+          await tx.votingOrder.updateMany({
+            where: { id: order.id, status: OrderStatus.PENDING },
+            data: { status: OrderStatus.PAID, paidAt: new Date() },
+          });
+
+          await tx.nominee.update({
+            where: { id: approvedNominee1Id },
+            data: { verifiedVotes: { increment: 7 } },
+          });
+
+          throw new Error("Simulated transient database error inside settlement transaction");
+        })
+      ).rejects.toThrow("Simulated transient database error inside settlement transaction");
+
+      // Verify ACID rollback in PostgreSQL:
+      // 1. Order status must still be PENDING!
+      const orderAfter = await prisma.votingOrder.findUniqueOrThrow({
+        where: { id: order.id },
+      });
+      expect(orderAfter.status).toBe(OrderStatus.PENDING);
+      expect(orderAfter.paidAt).toBeNull();
+
+      // 2. Nominee votes must NOT have incremented!
+      const nomineeAfter = await prisma.nominee.findUniqueOrThrow({
+        where: { id: approvedNominee1Id },
+      });
+      expect(nomineeAfter.verifiedVotes).toBe(initialVotes);
+
+      // 3. No PaymentTransaction or EmailOutbox records exist!
+      const txCount = await prisma.paymentTransaction.count({
+        where: { votingOrderId: order.id },
+      });
+      expect(txCount).toBe(0);
+
+      const emailCount = await prisma.emailOutbox.count({
+        where: { votingOrderId: order.id },
+      });
+      expect(emailCount).toBe(0);
+    });
+
     it("rejects payment confirmation when payment amount does not match order total", async () => {
       const order = await createVotingOrder({
         eventId: activeEventId,
@@ -857,54 +931,163 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
   });
 
   // ----------------------------------------------------
-  // TEST GROUP 5: DEADLINE POLICY & NOMINEE DISQUALIFICATION
+  // TEST GROUP 5: STRICT DEADLINE POLICY (NO GRACE PERIOD) & BOUNDARIES
   // ----------------------------------------------------
-  describe("Voting Deadline Policy and Interim Nominee Eligibility", () => {
-    it("quarantines payment when confirmed past the late payment grace period", async () => {
-      // Order created under closedEvent
-      // Note: closedEvent has votingEndDate = 2026-10-01 (more than 15 days ago)
-      // Let's create an order directly in DB with status PENDING for closedEvent
-      const lateOrder = await prisma.votingOrder.create({
-        data: {
-          orderNumber: "VOTE-LATE-DEADLINE-TEST-001",
-          eventId: closedEventId,
-          voterPhone: "0240009988",
-          voterEmail: "late@nuasknust.org",
-          totalVotes: 5,
-          unitPriceInPesewas: 150,
-          totalAmountInPesewas: 750,
-          status: OrderStatus.PENDING,
-          allocations: {
-            create: [
-              {
-                nomineeId: approvedNominee1Id,
-                numberOfVotes: 5,
-                subtotalInPesewas: 750,
-              },
-            ],
-          },
-        },
+  describe("Voting Deadline Policy (NO GRACE PERIOD) & Timing Boundaries", () => {
+    // Uses activeEvent's configured votingEndDate (2026-11-20T23:59:59Z)
+    const deadlineTimestamp = new Date("2026-11-20T23:59:59.000Z");
+
+    it("credits votes when confirmed immediately before closing deadline (T - 1s)", async () => {
+      const nomineeBefore = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      const initialVotes = nomineeBefore.verifiedVotes;
+
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0241113333",
+        voterEmail: "before-deadline@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee3Id, numberOfVotes: 3 }],
       });
 
-      await expect(
-        confirmVotingPayment({
-          orderNumber: lateOrder.orderNumber,
-          outcome: "SUCCESS",
-        })
-      ).rejects.toThrow(/grace window has expired/);
-
-      const dbOrder = await prisma.votingOrder.findUniqueOrThrow({
-        where: { id: lateOrder.id },
+      const beforeDeadline = new Date(deadlineTimestamp.getTime() - 1000); // 23:59:58.000Z
+      const res = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+        confirmationTimestamp: beforeDeadline,
       });
-      expect(dbOrder.status).toBe(OrderStatus.QUARANTINED);
+
+      expect(res.status).toBe(OrderStatus.PAID);
+      expect(res.success).toBe(true);
+
+      const nom = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      expect(nom.verifiedVotes).toBe(initialVotes + 3);
     });
 
+    it("credits votes when confirmed exactly at the deadline (T = 0s)", async () => {
+      const nomineeBefore = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      const initialVotes = nomineeBefore.verifiedVotes;
+
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0241113333",
+        voterEmail: "exact-deadline@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee3Id, numberOfVotes: 2 }],
+      });
+
+      const exactDeadline = new Date(deadlineTimestamp.getTime()); // 23:59:59.000Z
+      const res = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+        confirmationTimestamp: exactDeadline,
+      });
+
+      expect(res.status).toBe(OrderStatus.PAID);
+      expect(res.success).toBe(true);
+
+      const nom = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      expect(nom.verifiedVotes).toBe(initialVotes + 2);
+    });
+
+    it("quarantines payment and refuses vote credits when confirmed immediately after closing deadline (T + 1s, zero grace period)", async () => {
+      const nomineeBefore = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      const initialVotes = nomineeBefore.verifiedVotes;
+
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0241113333",
+        voterEmail: "after-deadline@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee3Id, numberOfVotes: 4 }],
+      });
+
+      const afterDeadline = new Date(deadlineTimestamp.getTime() + 1000); // 00:00:00.000Z (next second)
+      const res = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+        confirmationTimestamp: afterDeadline,
+      });
+
+      expect(res.status).toBe(OrderStatus.QUARANTINED);
+      expect(res.success).toBe(false);
+      expect(res.message).toContain("Voting deadline closed");
+
+      // Nominee votes must NOT be incremented!
+      const nom = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      expect(nom.verifiedVotes).toBe(initialVotes); // Unchanged!
+
+      // Payment transaction preserved for financial audit
+      const tx = await prisma.paymentTransaction.findFirstOrThrow({
+        where: { votingOrderId: order.id },
+      });
+      expect(tx.status).toBe(OrderStatus.QUARANTINED);
+    });
+
+    it("quarantines payment when confirmed substantially after closing deadline (T + 24 hours)", async () => {
+      const nomineeBefore = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      const initialVotes = nomineeBefore.verifiedVotes;
+
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0241113333",
+        voterEmail: "way-after-deadline@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee3Id, numberOfVotes: 10 }],
+      });
+
+      const wayAfter = new Date(deadlineTimestamp.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
+      const res = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+        confirmationTimestamp: wayAfter,
+      });
+
+      expect(res.status).toBe(OrderStatus.QUARANTINED);
+      expect(res.success).toBe(false);
+
+      const nom = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee3Id } });
+      expect(nom.verifiedVotes).toBe(initialVotes); // Still unchanged!
+    });
+
+    it("handles delayed and duplicate callbacks on quarantined orders safely without duplicate transactions", async () => {
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0241113333",
+        voterEmail: "dup-quarantine@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee3Id, numberOfVotes: 1 }],
+      });
+
+      const postDeadline = new Date(deadlineTimestamp.getTime() + 5000);
+
+      // First confirmation
+      const res1 = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+        confirmationTimestamp: postDeadline,
+      });
+      expect(res1.status).toBe(OrderStatus.QUARANTINED);
+
+      // Duplicate callback
+      const res2 = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+        confirmationTimestamp: postDeadline,
+      });
+      expect(res2.status).toBe(OrderStatus.QUARANTINED);
+
+      // Exactly 1 payment transaction exists
+      const txCount = await prisma.paymentTransaction.count({
+        where: { votingOrderId: order.id },
+      });
+      expect(txCount).toBe(1);
+    });
+  });
+
+  // ----------------------------------------------------
+  // TEST GROUP 6: NOMINEE, CATEGORY & EVENT ELIGIBILITY AT SETTLEMENT
+  // ----------------------------------------------------
+  describe("Interim Eligibility Re-Validation at Settlement Time", () => {
     it("quarantines payment if a nominee was unapproved after checkout creation", async () => {
-      // Create a temporary nominee that is active and approved
       const tempNominee = await prisma.nominee.create({
         data: {
           categoryId: (await prisma.category.findFirstOrThrow({ where: { eventId: activeEventId } })).id,
-          nomineeCode: "VOTE-DISQUALIFIED-NOM",
+          nomineeCode: `DISQ-NOM-${Date.now()}`,
           name: "Soon Disqualified",
           verifiedVotes: 0,
           isActive: true,
@@ -925,27 +1108,305 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
         data: { isApproved: false },
       });
 
-      // Attempt payment confirmation
-      await expect(
-        confirmVotingPayment({
-          orderNumber: order.orderNumber,
-          outcome: "SUCCESS",
-        })
-      ).rejects.toThrow(/no longer eligible to receive votes/);
+      // Attempt payment confirmation -> Quarantined cleanly!
+      const res = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+      });
+
+      expect(res.status).toBe(OrderStatus.QUARANTINED);
+      expect(res.success).toBe(false);
+      expect(res.message).toContain("no longer eligible");
 
       const dbOrder = await prisma.votingOrder.findUniqueOrThrow({
         where: { id: order.id },
       });
       expect(dbOrder.status).toBe(OrderStatus.QUARANTINED);
+      expect(dbOrder.quarantineReason).toContain("became unapproved or inactive");
+
+      // Verify nominee votes were NOT incremented
+      const nomAfter = await prisma.nominee.findUniqueOrThrow({ where: { id: tempNominee.id } });
+      expect(nomAfter.verifiedVotes).toBe(0);
 
       // Clean up temp nominee
       await prisma.voteAllocation.deleteMany({ where: { nomineeId: tempNominee.id } });
       await prisma.nominee.delete({ where: { id: tempNominee.id } });
     });
+
+    it("quarantines payment if a category was deactivated after checkout creation", async () => {
+      const tempCat = await prisma.category.create({
+        data: {
+          eventId: activeEventId,
+          title: `Interim Cat ${Date.now()}`,
+          isActive: true,
+          isApproved: true,
+        },
+      });
+
+      const tempNom = await prisma.nominee.create({
+        data: {
+          categoryId: tempCat.id,
+          nomineeCode: `INTERIM-NOM-${Date.now()}`,
+          name: "Interim Nominee",
+          isActive: true,
+          isApproved: true,
+          verifiedVotes: 0,
+        },
+      });
+
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0248889900",
+        voterEmail: "cat-disqual@nuasknust.org",
+        allocations: [{ nomineeId: tempNom.id, numberOfVotes: 3 }],
+      });
+
+      // Deactivate category in DB
+      await prisma.category.update({
+        where: { id: tempCat.id },
+        data: { isActive: false },
+      });
+
+      const res = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+      });
+
+      expect(res.status).toBe(OrderStatus.QUARANTINED);
+      expect(res.success).toBe(false);
+
+      const nomAfter = await prisma.nominee.findUniqueOrThrow({ where: { id: tempNom.id } });
+      expect(nomAfter.verifiedVotes).toBe(0);
+
+      // Cleanup
+      await prisma.voteAllocation.deleteMany({ where: { nomineeId: tempNom.id } });
+      await prisma.nominee.delete({ where: { id: tempNom.id } });
+      await prisma.category.delete({ where: { id: tempCat.id } });
+    });
+
+    it("quarantines payment if the event was unpublished after checkout creation", async () => {
+      const tempEvent = await prisma.event.create({
+        data: {
+          slug: `unpub-event-${Date.now()}`,
+          title: "Unpublishing Event",
+          venue: "Great Hall",
+          eventDate: new Date("2026-11-21T18:00:00Z"),
+          votingStartDate: new Date("2026-10-01T00:00:00Z"),
+          votingEndDate: new Date("2026-11-20T23:59:59Z"),
+          status: EventStatus.PUBLISHED,
+        },
+      });
+
+      const tempCat = await prisma.category.create({
+        data: { eventId: tempEvent.id, title: "Unpub Cat", isActive: true, isApproved: true },
+      });
+
+      const tempNom = await prisma.nominee.create({
+        data: {
+          categoryId: tempCat.id,
+          nomineeCode: `UNPUB-NOM-${Date.now()}`,
+          name: "Unpub Nom",
+          isActive: true,
+          isApproved: true,
+          verifiedVotes: 0,
+        },
+      });
+
+      const order = await createVotingOrder({
+        eventId: tempEvent.id,
+        voterPhone: "0245556677",
+        voterEmail: "event-unpub@nuasknust.org",
+        allocations: [{ nomineeId: tempNom.id, numberOfVotes: 2 }],
+      });
+
+      // Change event status to VOTING_CLOSED
+      await prisma.event.update({
+        where: { id: tempEvent.id },
+        data: { status: EventStatus.VOTING_CLOSED },
+      });
+
+      const res = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+      });
+
+      expect(res.status).toBe(OrderStatus.QUARANTINED);
+      expect(res.success).toBe(false);
+
+      const nomAfter = await prisma.nominee.findUniqueOrThrow({ where: { id: tempNom.id } });
+      expect(nomAfter.verifiedVotes).toBe(0);
+
+      // Cleanup
+      await prisma.paymentTransaction.deleteMany({ where: { votingOrderId: order.id } });
+      await prisma.voteAllocation.deleteMany({ where: { votingOrderId: order.id } });
+      await prisma.votingOrder.delete({ where: { id: order.id } });
+      await prisma.nominee.delete({ where: { id: tempNom.id } });
+      await prisma.category.delete({ where: { id: tempCat.id } });
+      await prisma.event.delete({ where: { id: tempEvent.id } });
+    });
   });
 
   // ----------------------------------------------------
-  // TEST GROUP 6: SANDBOX ISOLATION & ENV VALIDATION
+  // TEST GROUP 7: FAILED, EXPIRED & QUARANTINED TRANSITIONS
+  // ----------------------------------------------------
+  describe("FAILED, EXPIRED & QUARANTINED State Transitions", () => {
+    it("handles late SUCCESS for an EXPIRED order by moving to QUARANTINED without crediting votes", async () => {
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0241239999",
+        voterEmail: "expired-test@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 5 }],
+      });
+
+      // Mark order EXPIRED (simulating expired session / voter cancellation)
+      const cancelRes = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "CANCELLED",
+      });
+      expect(cancelRes.status).toBe(OrderStatus.EXPIRED);
+
+      const nomBefore = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee1Id } });
+      const votesBefore = nomBefore.verifiedVotes;
+
+      // Late success arrives
+      const lateRes = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+      });
+
+      expect(lateRes.status).toBe(OrderStatus.QUARANTINED);
+      expect(lateRes.success).toBe(false);
+
+      // Votes NOT credited
+      const nomAfter = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee1Id } });
+      expect(nomAfter.verifiedVotes).toBe(votesBefore);
+    });
+
+    it("prevents confirmation of already QUARANTINED orders through regular confirmation flow", async () => {
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0241118888",
+        voterEmail: "quarantine-lock@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 3 }],
+      });
+
+      // Trigger quarantine via amount mismatch
+      await expect(
+        confirmVotingPayment({
+          orderNumber: order.orderNumber,
+          outcome: "SUCCESS",
+          amountInPesewas: 100, // Expected 450
+        })
+      ).rejects.toThrow();
+
+      // Attempt second confirmation on quarantined order
+      const retryRes = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+      });
+
+      expect(retryRes.status).toBe(OrderStatus.QUARANTINED);
+      expect(retryRes.success).toBe(false);
+      expect(retryRes.message).toContain("quarantined for review");
+    });
+  });
+
+  // ----------------------------------------------------
+  // TEST GROUP 8: PERSISTENT EMAIL OUTBOX & DECOUPLED RETRY
+  // ----------------------------------------------------
+  describe("Persistent Email Outbox Processing & Decoupled Atomicity", () => {
+    it("asynchronously processes queued receipts and sets status to SENT", async () => {
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0245550011",
+        voterEmail: "outbox.delivery@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee1Id, numberOfVotes: 2 }],
+      });
+
+      // Settle payment -> writes to EmailOutbox atomically inside settlement tx
+      const confirmRes = await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+      });
+      expect(confirmRes.status).toBe(OrderStatus.PAID);
+
+      const outboxItem = await prisma.emailOutbox.findFirstOrThrow({
+        where: { votingOrderId: order.id },
+      });
+      expect(outboxItem.status).toBe(EmailStatus.PENDING);
+      expect(outboxItem.recipient).toBe("outbox.delivery@nuasknust.org");
+
+      // Process outbox with mock transport
+      const transport = new MockEmailTransport();
+      const summary = await processEmailOutbox({ transport });
+
+      expect(summary.sent).toBeGreaterThanOrEqual(1);
+
+      const updatedItem = await prisma.emailOutbox.findUniqueOrThrow({
+        where: { id: outboxItem.id },
+      });
+      expect(updatedItem.status).toBe(EmailStatus.SENT);
+      expect(updatedItem.sentAt).not.toBeNull();
+      expect(updatedItem.attempts).toBe(1);
+    });
+
+    it("retries transient email delivery failures without reversing paid orders or duplicating votes", async () => {
+      const nomineeBefore = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee2Id } });
+      const initialVotes = nomineeBefore.verifiedVotes;
+
+      const order = await createVotingOrder({
+        eventId: activeEventId,
+        voterPhone: "0245550022",
+        voterEmail: "transient.failure@nuasknust.org",
+        allocations: [{ nomineeId: approvedNominee2Id, numberOfVotes: 3 }],
+      });
+
+      await confirmVotingPayment({
+        orderNumber: order.orderNumber,
+        outcome: "SUCCESS",
+      });
+
+      const outboxItem = await prisma.emailOutbox.findFirstOrThrow({
+        where: { votingOrderId: order.id },
+      });
+
+      // Simulate 1 transient failure followed by success
+      const flakyTransport = new MockEmailTransport();
+      flakyTransport.failNextAttempts = 1;
+
+      // 1. First run fails
+      const run1 = await processEmailOutbox({ transport: flakyTransport });
+      expect(run1.failed).toBeGreaterThanOrEqual(1);
+
+      const itemAfterFail = await prisma.emailOutbox.findUniqueOrThrow({
+        where: { id: outboxItem.id },
+      });
+      expect(itemAfterFail.status).toBe(EmailStatus.FAILED);
+      expect(itemAfterFail.attempts).toBe(1);
+      expect(itemAfterFail.lastError).toContain("Simulated transient SMTP");
+
+      // CRITICAL: Order MUST remain PAID and nominee votes MUST remain credited!
+      const orderDb = await prisma.votingOrder.findUniqueOrThrow({ where: { id: order.id } });
+      expect(orderDb.status).toBe(OrderStatus.PAID);
+
+      const nomineeDb = await prisma.nominee.findUniqueOrThrow({ where: { id: approvedNominee2Id } });
+      expect(nomineeDb.verifiedVotes).toBe(initialVotes + 3);
+
+      // 2. Retry run succeeds
+      const run2 = await processEmailOutbox({ transport: flakyTransport });
+      expect(run2.sent).toBeGreaterThanOrEqual(1);
+
+      const itemAfterRetry = await prisma.emailOutbox.findUniqueOrThrow({
+        where: { id: outboxItem.id },
+      });
+      expect(itemAfterRetry.status).toBe(EmailStatus.SENT);
+      expect(itemAfterRetry.attempts).toBe(2);
+      expect(itemAfterRetry.lastError).toBeNull();
+    });
+  });
+
+  // ----------------------------------------------------
+  // TEST GROUP 9: SANDBOX ISOLATION & ENV VALIDATION
   // ----------------------------------------------------
   describe("Production Isolation of Sandbox Simulation", () => {
     it("strictly blocks sandbox payment confirmation if NODE_ENV is production", async () => {

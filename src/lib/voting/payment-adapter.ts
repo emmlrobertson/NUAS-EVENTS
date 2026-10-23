@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
-import { OrderStatus, OrderType, PaymentProvider } from "@prisma/client";
+import { EventStatus, OrderStatus, OrderType, PaymentProvider } from "@prisma/client";
 import { PaymentGatewayAdapter } from "./types";
 
 export class SandboxMockPaymentGateway implements PaymentGatewayAdapter {
@@ -55,6 +55,7 @@ export interface ConfirmVotingPaymentParams {
   gatewayReference?: string;
   amountInPesewas?: number;
   currency?: string;
+  confirmationTimestamp?: Date;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -76,8 +77,8 @@ export interface PaymentConfirmationResult {
  * - Atomic conditional state transitions (status = PENDING -> PAID) to block concurrent double-increments.
  * - Explicit safe state-transition handling for late/conflicting outcomes (quarantine on unexpected success).
  * - Amount and currency verification against the authoritative database order total.
- * - Voting deadline grace window enforcement according to the event's configured latePaymentPolicy.
- * - Nominee eligibility re-verification before crediting.
+ * - Strict deadline policy: NO GRACE PERIOD. Confirmations after votingEndDate must not credit votes.
+ * - Server-side category and nominee eligibility re-verification before crediting.
  * - Decoupled, non-blocking asynchronous email receipt queueing in EmailOutbox.
  */
 export async function confirmVotingPayment(
@@ -88,7 +89,19 @@ export async function confirmVotingPayment(
     throw new Error("Sandbox payment simulation cannot be invoked in production or when live payments are enabled.");
   }
 
-  const { orderNumber, outcome, gatewayReference, amountInPesewas, currency, ipAddress, userAgent } = params;
+  const {
+    orderNumber,
+    outcome,
+    gatewayReference,
+    amountInPesewas,
+    currency,
+    confirmationTimestamp,
+    ipAddress,
+    userAgent,
+  } = params;
+
+  // Server-side authoritative confirmation timestamp
+  const confirmationTime = confirmationTimestamp ?? new Date();
 
   // 2. Fetch order with event, nominees, and allocations
   const order = await prisma.votingOrder.findUnique({
@@ -97,7 +110,11 @@ export async function confirmVotingPayment(
       event: true,
       allocations: {
         include: {
-          nominee: true,
+          nominee: {
+            include: {
+              category: true,
+            },
+          },
         },
       },
       transactions: true,
@@ -162,7 +179,7 @@ export async function confirmVotingPayment(
             simulated: true,
             outcome: "LATE_SUCCESS_AFTER_FAILURE",
             originalStatus: order.status,
-            timestamp: new Date().toISOString(),
+            timestamp: confirmationTime.toISOString(),
           },
         },
       });
@@ -244,7 +261,7 @@ export async function confirmVotingPayment(
             amountMismatch: true,
             expected: order.totalAmountInPesewas,
             received: amountInPesewas,
-            timestamp: new Date().toISOString(),
+            timestamp: confirmationTime.toISOString(),
           },
         },
       });
@@ -301,7 +318,7 @@ export async function confirmVotingPayment(
           rawWebhookPayload: {
             simulated: true,
             outcome,
-            timestamp: new Date().toISOString(),
+            timestamp: confirmationTime.toISOString(),
           },
         },
       });
@@ -331,104 +348,242 @@ export async function confirmVotingPayment(
     };
   }
 
-  // 7. Voting Deadline and Grace Window Enforcement
-  const now = new Date();
-  if (now > order.event.votingEndDate) {
-    const graceMinutes = order.event.latePaymentGraceMinutes ?? 15;
-    const graceDeadline = new Date(order.event.votingEndDate.getTime() + graceMinutes * 60 * 1000);
+  // 7. Atomic Concurrency-Safe Settlement Transaction with Server-Side Re-validation
+  return await prisma.$transaction(async (tx) => {
+    // A. Re-verify Event Status
+    const freshEvent = await tx.event.findUniqueOrThrow({
+      where: { id: order.eventId },
+    });
 
-    if (now > graceDeadline) {
-      await prisma.$transaction(async (tx) => {
-        await tx.votingOrder.update({
-          where: { id: order.id },
-          data: {
-            status: OrderStatus.QUARANTINED,
-            quarantineReason: `Payment confirmed beyond the ${graceMinutes}-minute grace window after voting deadline.`,
-          },
-        });
-
-        await tx.paymentTransaction.create({
-          data: {
-            reference: `REF-${effectiveRef}`,
-            gateway: PaymentProvider.SANDBOX_MOCK,
-            gatewayReference: effectiveRef,
-            orderType: OrderType.VOTING,
-            votingOrderId: order.id,
-            amountInPesewas: order.totalAmountInPesewas,
-            currency: "GHS",
-            status: OrderStatus.QUARANTINED,
-            idempotencyKey: transactionIdempotencyKey,
-          },
-        });
+    if (freshEvent.status !== EventStatus.PUBLISHED) {
+      await tx.votingOrder.update({
+        where: { id: order.id },
+        data: {
+          status: OrderStatus.QUARANTINED,
+          quarantineReason: `Event is no longer PUBLISHED (status: ${freshEvent.status}) at payment settlement. Quarantined for organizer review.`,
+        },
       });
 
-      throw new Error("Voting deadline has closed and the grace window has expired. Order quarantined.");
-    }
-
-    if (order.event.latePaymentPolicy === "MANUAL_QUARANTINE") {
-      await prisma.$transaction(async (tx) => {
-        await tx.votingOrder.update({
-          where: { id: order.id },
-          data: {
-            status: OrderStatus.QUARANTINED,
-            quarantineReason: "Payment arrived during post-deadline grace period; quarantined per organizer policy.",
+      await tx.paymentTransaction.create({
+        data: {
+          reference: `REF-${effectiveRef}`,
+          gateway: PaymentProvider.SANDBOX_MOCK,
+          gatewayReference: effectiveRef,
+          orderType: OrderType.VOTING,
+          votingOrderId: order.id,
+          amountInPesewas: order.totalAmountInPesewas,
+          currency: "GHS",
+          status: OrderStatus.QUARANTINED,
+          idempotencyKey: transactionIdempotencyKey,
+          rawWebhookPayload: {
+            simulated: true,
+            eventStatus: freshEvent.status,
+            timestamp: confirmationTime.toISOString(),
           },
-        });
+        },
+      });
 
-        await tx.paymentTransaction.create({
-          data: {
-            reference: `REF-${effectiveRef}`,
-            gateway: PaymentProvider.SANDBOX_MOCK,
-            gatewayReference: effectiveRef,
-            orderType: OrderType.VOTING,
-            votingOrderId: order.id,
-            amountInPesewas: order.totalAmountInPesewas,
-            currency: "GHS",
-            status: OrderStatus.QUARANTINED,
-            idempotencyKey: transactionIdempotencyKey,
+      await tx.auditLog.create({
+        data: {
+          action: "VOTING_PAYMENT_QUARANTINED_EVENT_INELIGIBLE",
+          entity: "VotingOrder",
+          entityId: order.id,
+          details: {
+            orderNumber: order.orderNumber,
+            eventStatus: freshEvent.status,
+            effectiveRef,
           },
-        });
+          ipAddress: ipAddress ?? null,
+          userAgent: userAgent ?? null,
+        },
       });
 
       return {
-        success: true,
+        success: false,
         orderNumber: order.orderNumber,
         status: OrderStatus.QUARANTINED,
-        message: "Payment confirmed during grace period; quarantined for organizer review.",
+        message: `Event is no longer in PUBLISHED status (${freshEvent.status}). Payment quarantined.`,
         totalVotes: order.totalVotes,
         totalAmountInPesewas: order.totalAmountInPesewas,
       };
     }
 
-    if (order.event.latePaymentPolicy === "STRICT_REJECT") {
-      await prisma.votingOrder.update({
-        where: { id: order.id },
-        data: {
-          status: OrderStatus.FAILED,
-          quarantineReason: "Strict deadline policy: Voting closed.",
-        },
-      });
-      throw new Error("Voting deadline has closed. Payment strictly rejected.");
-    }
-  }
-
-  // 8. Re-verify Nominee Eligibility at Payment Time
-  for (const alloc of order.allocations) {
-    if (!alloc.nominee.isActive || !alloc.nominee.isApproved) {
-      await prisma.votingOrder.update({
+    // B. Strict Voting Deadline Enforcement: NO GRACE PERIOD
+    // Precise rule: Confirmation time must be <= votingEndDate. Any confirmation with confirmationTime > votingEndDate is quarantined.
+    if (confirmationTime > freshEvent.votingEndDate) {
+      await tx.votingOrder.update({
         where: { id: order.id },
         data: {
           status: OrderStatus.QUARANTINED,
-          quarantineReason: `Nominee "${alloc.nominee.name}" (${alloc.nominee.nomineeCode}) was unapproved or deactivated prior to payment settlement.`,
+          quarantineReason: `Payment confirmed at ${confirmationTime.toISOString()} after voting closed at ${freshEvent.votingEndDate.toISOString()}. No grace period permitted per organizer policy. Quarantined for manual reconciliation.`,
         },
       });
-      throw new Error(`Nominee "${alloc.nominee.name}" is no longer eligible to receive votes.`);
-    }
-  }
 
-  // 9. Atomic Concurrency-Safe Settlement Transaction
-  return await prisma.$transaction(async (tx) => {
-    // Atomic conditional update ensures only ONE concurrent transaction transitions PENDING -> PAID
+      await tx.paymentTransaction.create({
+        data: {
+          reference: `REF-${effectiveRef}`,
+          gateway: PaymentProvider.SANDBOX_MOCK,
+          gatewayReference: effectiveRef,
+          orderType: OrderType.VOTING,
+          votingOrderId: order.id,
+          amountInPesewas: order.totalAmountInPesewas,
+          currency: "GHS",
+          status: OrderStatus.QUARANTINED,
+          idempotencyKey: transactionIdempotencyKey,
+          rawWebhookPayload: {
+            simulated: true,
+            deadline: freshEvent.votingEndDate.toISOString(),
+            confirmationTime: confirmationTime.toISOString(),
+          },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: "VOTING_PAYMENT_QUARANTINED_POST_DEADLINE",
+          entity: "VotingOrder",
+          entityId: order.id,
+          details: {
+            orderNumber: order.orderNumber,
+            votingEndDate: freshEvent.votingEndDate.toISOString(),
+            confirmedAt: confirmationTime.toISOString(),
+            effectiveRef,
+          },
+          ipAddress: ipAddress ?? null,
+          userAgent: userAgent ?? null,
+        },
+      });
+
+      return {
+        success: false,
+        orderNumber: order.orderNumber,
+        status: OrderStatus.QUARANTINED,
+        message: `Voting deadline closed at ${freshEvent.votingEndDate.toISOString()}. Payment received after deadline and quarantined without crediting votes.`,
+        totalVotes: order.totalVotes,
+        totalAmountInPesewas: order.totalAmountInPesewas,
+      };
+    }
+
+    // C. Re-verify Nominee & Category Eligibility inside Transaction
+    for (const alloc of order.allocations) {
+      const freshNominee = await tx.nominee.findUniqueOrThrow({
+        where: { id: alloc.nomineeId },
+        include: { category: true },
+      });
+
+      if (!freshNominee.isActive || !freshNominee.isApproved) {
+        await tx.votingOrder.update({
+          where: { id: order.id },
+          data: {
+            status: OrderStatus.QUARANTINED,
+            quarantineReason: `Nominee "${freshNominee.name}" (${freshNominee.nomineeCode}) became unapproved or inactive prior to payment settlement.`,
+          },
+        });
+
+        await tx.paymentTransaction.create({
+          data: {
+            reference: `REF-${effectiveRef}`,
+            gateway: PaymentProvider.SANDBOX_MOCK,
+            gatewayReference: effectiveRef,
+            orderType: OrderType.VOTING,
+            votingOrderId: order.id,
+            amountInPesewas: order.totalAmountInPesewas,
+            currency: "GHS",
+            status: OrderStatus.QUARANTINED,
+            idempotencyKey: transactionIdempotencyKey,
+            rawWebhookPayload: {
+              simulated: true,
+              disqualifiedNomineeId: freshNominee.id,
+              isActive: freshNominee.isActive,
+              isApproved: freshNominee.isApproved,
+              timestamp: confirmationTime.toISOString(),
+            },
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            action: "VOTING_PAYMENT_QUARANTINED_NOMINEE_INELIGIBLE",
+            entity: "VotingOrder",
+            entityId: order.id,
+            details: {
+              orderNumber: order.orderNumber,
+              nomineeCode: freshNominee.nomineeCode,
+              nomineeName: freshNominee.name,
+              effectiveRef,
+            },
+            ipAddress: ipAddress ?? null,
+            userAgent: userAgent ?? null,
+          },
+        });
+
+        return {
+          success: false,
+          orderNumber: order.orderNumber,
+          status: OrderStatus.QUARANTINED,
+          message: `Nominee "${freshNominee.name}" is no longer eligible to receive votes. Payment quarantined.`,
+          totalVotes: order.totalVotes,
+          totalAmountInPesewas: order.totalAmountInPesewas,
+        };
+      }
+
+      if (!freshNominee.category.isActive || !freshNominee.category.isApproved) {
+        await tx.votingOrder.update({
+          where: { id: order.id },
+          data: {
+            status: OrderStatus.QUARANTINED,
+            quarantineReason: `Category "${freshNominee.category.title}" became unapproved or inactive prior to payment settlement.`,
+          },
+        });
+
+        await tx.paymentTransaction.create({
+          data: {
+            reference: `REF-${effectiveRef}`,
+            gateway: PaymentProvider.SANDBOX_MOCK,
+            gatewayReference: effectiveRef,
+            orderType: OrderType.VOTING,
+            votingOrderId: order.id,
+            amountInPesewas: order.totalAmountInPesewas,
+            currency: "GHS",
+            status: OrderStatus.QUARANTINED,
+            idempotencyKey: transactionIdempotencyKey,
+            rawWebhookPayload: {
+              simulated: true,
+              disqualifiedCategoryId: freshNominee.category.id,
+              isActive: freshNominee.category.isActive,
+              isApproved: freshNominee.category.isApproved,
+              timestamp: confirmationTime.toISOString(),
+            },
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            action: "VOTING_PAYMENT_QUARANTINED_CATEGORY_INELIGIBLE",
+            entity: "VotingOrder",
+            entityId: order.id,
+            details: {
+              orderNumber: order.orderNumber,
+              categoryTitle: freshNominee.category.title,
+              effectiveRef,
+            },
+            ipAddress: ipAddress ?? null,
+            userAgent: userAgent ?? null,
+          },
+        });
+
+        return {
+          success: false,
+          orderNumber: order.orderNumber,
+          status: OrderStatus.QUARANTINED,
+          message: `Category "${freshNominee.category.title}" is no longer eligible. Payment quarantined.`,
+          totalVotes: order.totalVotes,
+          totalAmountInPesewas: order.totalAmountInPesewas,
+        };
+      }
+    }
+
+    // D. Atomic Claim: conditional update ensures only ONE concurrent transaction transitions PENDING -> PAID
     const updateResult = await tx.votingOrder.updateMany({
       where: {
         id: order.id,
@@ -436,7 +591,7 @@ export async function confirmVotingPayment(
       },
       data: {
         status: OrderStatus.PAID,
-        paidAt: new Date(),
+        paidAt: confirmationTime,
       },
     });
 
@@ -462,7 +617,7 @@ export async function confirmVotingPayment(
       );
     }
 
-    // A. Insert authoritative payment transaction
+    // E. Insert authoritative payment transaction
     await tx.paymentTransaction.create({
       data: {
         reference: `SYS-${effectiveRef}`,
@@ -479,12 +634,12 @@ export async function confirmVotingPayment(
           simulated: true,
           outcome: "SUCCESS",
           gateway: "SANDBOX_MOCK",
-          timestamp: new Date().toISOString(),
+          timestamp: confirmationTime.toISOString(),
         },
       },
     });
 
-    // B. Increment verified votes exactly once
+    // F. Increment verified votes exactly once
     for (const allocation of order.allocations) {
       await tx.nominee.update({
         where: { id: allocation.nomineeId },
@@ -496,7 +651,7 @@ export async function confirmVotingPayment(
       });
     }
 
-    // C. Record Audit Log
+    // G. Record Audit Log
     await tx.auditLog.create({
       data: {
         action: "VOTING_ORDER_PAID_AND_CREDITED",
@@ -513,7 +668,7 @@ export async function confirmVotingPayment(
       },
     });
 
-    // D. Enqueue Decoupled Email Receipt
+    // H. Enqueue Decoupled Email Receipt
     if (order.voterEmail) {
       await tx.emailOutbox.create({
         data: {
@@ -529,7 +684,7 @@ export async function confirmVotingPayment(
               nomineeName: a.nominee.name,
               votes: a.numberOfVotes,
             })),
-            paidAt: new Date().toISOString(),
+            paidAt: confirmationTime.toISOString(),
           },
           status: "PENDING",
           votingOrderId: order.id,
