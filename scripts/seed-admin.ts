@@ -10,6 +10,20 @@ export interface SeedAdminOptions {
   prismaClient?: PrismaClient;
 }
 
+export function validateAdminPasswordStrength(password: string): void {
+  if (!password || password.length < 12) {
+    throw new Error("INITIAL_ADMIN_PASSWORD must be at least 12 characters long.");
+  }
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasDigitOrSpecial = /[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password);
+  if (!hasUpper || !hasLower || !hasDigitOrSpecial) {
+    throw new Error(
+      "INITIAL_ADMIN_PASSWORD must contain uppercase, lowercase, and numeric or special characters."
+    );
+  }
+}
+
 export async function bootstrapAdmin(options?: SeedAdminOptions) {
   const prisma = options?.prismaClient ?? new PrismaClient();
   const shouldDisconnect = !options?.prismaClient;
@@ -17,12 +31,19 @@ export async function bootstrapAdmin(options?: SeedAdminOptions) {
   try {
     const email = (options?.email || process.env.INITIAL_ADMIN_EMAIL || "admin@nuasknust.org").trim().toLowerCase();
     const name = (options?.name || process.env.INITIAL_ADMIN_NAME || "NUAS Executive Super Admin").trim();
-    const password = options?.password || process.env.INITIAL_ADMIN_PASSWORD;
+    const rawPassword = options && "password" in options ? options.password : process.env.INITIAL_ADMIN_PASSWORD;
+    const password = rawPassword?.trim();
     const forceReset = options?.forceReset ?? process.argv.includes("--force-reset");
 
-    if (!email || !password) {
-      throw new Error("INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD must be configured in environment variables.");
+    if (!email) {
+      throw new Error("INITIAL_ADMIN_EMAIL must be explicitly provided in environment variables or options.");
     }
+
+    if (!password) {
+      throw new Error("INITIAL_ADMIN_PASSWORD must be explicitly provided via environment variables or bootstrap options. Default passwords have been removed for security.");
+    }
+
+    validateAdminPasswordStrength(password);
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({

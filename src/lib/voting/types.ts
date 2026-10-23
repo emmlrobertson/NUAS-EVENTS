@@ -54,7 +54,7 @@ export interface VotingOrderDto {
   orderNumber: string;
   eventId: string;
   maskedPhone: string;
-  voterEmail?: string | null;
+  voterEmail: string;
   totalVotes: number;
   unitPriceInPesewas: number;
   totalAmountInPesewas: number;

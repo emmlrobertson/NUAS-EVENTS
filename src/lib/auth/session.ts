@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { Role, User } from "@prisma/client";
+import { getEnv } from "@/lib/env";
 
 const COOKIE_NAME = "nuas_admin_session";
 const SESSION_EXPIRY_SECONDS = 60 * 60 * 24; // 24 hours
@@ -15,14 +16,18 @@ export interface SessionPayload {
 }
 
 function getSecretKey(): string {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("[FATAL SECURITY] SESSION_SECRET must be configured in production.");
+  try {
+    return getEnv().SESSION_SECRET;
+  } catch {
+    const secret = process.env.SESSION_SECRET;
+    if (!secret) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("[FATAL SECURITY] SESSION_SECRET must be configured in production.");
+      }
+      return "dev-session-secret-fallback-minimum-32-chars";
     }
-    return "dev-session-secret-fallback-minimum-32-chars";
+    return secret;
   }
-  return secret;
 }
 
 export function createSessionToken(user: Pick<User, "id" | "email" | "role" | "tokenVersion">): string {

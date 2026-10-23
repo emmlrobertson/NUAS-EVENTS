@@ -89,4 +89,38 @@ describe("Administrator Bootstrap Idempotency", () => {
     const newPasswordValid = await verifyPassword(secondPassword, userInDb!.passwordHash);
     expect(newPasswordValid).toBe(true);
   });
+
+  it("rejects bootstrap when password is missing", async () => {
+    await expect(
+      bootstrapAdmin({
+        email: "missing-pwd@nuasknust.org",
+        name: "Missing Password Admin",
+        password: "",
+        prismaClient: prisma,
+      })
+    ).rejects.toThrowError(/INITIAL_ADMIN_PASSWORD must be explicitly provided/);
+  });
+
+  it("rejects bootstrap when password is too short or weak", async () => {
+    // Too short (< 12 chars)
+    await expect(
+      bootstrapAdmin({
+        email: "short-pwd@nuasknust.org",
+        name: "Short Password Admin",
+        password: "Short1!",
+        prismaClient: prisma,
+      })
+    ).rejects.toThrowError(/must be at least 12 characters long/);
+
+    // Missing numbers/special chars
+    await expect(
+      bootstrapAdmin({
+        email: "weak-pwd@nuasknust.org",
+        name: "Weak Password Admin",
+        password: "AllLettersOnlyNoNumbersOrSymbols",
+        prismaClient: prisma,
+      })
+    ).rejects.toThrowError(/must contain uppercase, lowercase, and numeric or special characters/);
+  });
 });
+

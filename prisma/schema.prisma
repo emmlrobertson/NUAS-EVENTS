@@ -117,7 +117,7 @@ model Event {
   eventDate               DateTime          // 21 November 2026
   votingStartDate         DateTime
   votingEndDate           DateTime
-  latePaymentGraceMinutes Int               @default(15) // Window for in-flight MoMo approvals
+  latePaymentGraceMinutes Int               @default(0) // Deprecated: Zero grace period enforced authoritatively
   latePaymentPolicy       LatePaymentPolicy @default(MANUAL_QUARANTINE)
   status                  EventStatus       @default(DRAFT) // Seed data must remain DRAFT
   createdAt               DateTime          @default(now())
@@ -182,7 +182,7 @@ model VotingOrder {
   orderNumber          String            @unique // e.g. VOTE-261121-ABC123
   eventId              String
   voterPhone           String            // Masked in audit logs: e.g. +233****5678
-  voterEmail           String?
+  voterEmail           String            // Required authoritative voter contact
   totalVotes           Int               // Sum of all allocations
   unitPriceInPesewas   Int               @default(150) // Fixed: GH₵1.50 = 150 pesewas
   totalAmountInPesewas Int               // totalVotes * 150 (computed server-side)
@@ -255,6 +255,7 @@ model TicketOrder {
   buyerPhone           String
   totalAmountInPesewas Int                // Server-computed total in pesewas
   status               OrderStatus        @default(PENDING)
+  idempotencyKey       String?            @unique
   reservationExpiresAt DateTime           // initiatedAt + 15 minutes hold
   paidAt               DateTime?
   createdAt            DateTime           @default(now())
@@ -300,7 +301,7 @@ model IssuedTicket {
 
   ticketOrder    TicketOrder   @relation(fields: [ticketOrderId], references: [id], onDelete: Cascade)
   ticketType     TicketType    @relation(fields: [ticketTypeId], references: [id])
-  checkIns       CheckIn[]
+  checkIn        CheckIn?
 
   @@index([qrSecurityHash])
   @@map("issued_tickets")
@@ -308,7 +309,7 @@ model IssuedTicket {
 
 model CheckIn {
   id             String       @id @default(cuid())
-  issuedTicketId String
+  issuedTicketId String       @unique
   scannedById    String
   scannedAt      DateTime     @default(now())
   deviceInfo     String?
@@ -317,7 +318,6 @@ model CheckIn {
   issuedTicket   IssuedTicket @relation(fields: [issuedTicketId], references: [id], onDelete: Cascade)
   scannedBy      User         @relation(fields: [scannedById], references: [id])
 
-  @@index([issuedTicketId])
   @@index([scannedAt])
   @@map("check_ins")
 }
@@ -365,6 +365,8 @@ model EmailOutbox {
   attempts      Int          @default(0)
   lastError     String?
   sentAt        DateTime?
+  claimToken    String?      // Worker claim/lease identifier
+  claimExpiresAt DateTime?   // Lease expiry for abandoned work recovery
   votingOrderId String?
   ticketOrderId String?
   createdAt     DateTime     @default(now())
@@ -373,7 +375,7 @@ model EmailOutbox {
   votingOrder   VotingOrder? @relation(fields: [votingOrderId], references: [id], onDelete: SetNull)
   ticketOrder   TicketOrder? @relation(fields: [ticketOrderId], references: [id], onDelete: SetNull)
 
-  @@index([status])
+  @@index([status, claimExpiresAt])
   @@index([createdAt])
   @@map("email_outbox")
 }

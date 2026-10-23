@@ -710,10 +710,14 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
         confirmVotingPayment({
           orderNumber: order.orderNumber,
           outcome: "SUCCESS",
+          amountInPesewas: order.totalAmountInPesewas,
+          currency: "GHS",
         }),
         confirmVotingPayment({
           orderNumber: order.orderNumber,
           outcome: "SUCCESS",
+          amountInPesewas: order.totalAmountInPesewas,
+          currency: "GHS",
         }),
       ]);
 
@@ -820,6 +824,7 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
         confirmVotingPayment({
           orderNumber: order.orderNumber,
           outcome: "SUCCESS",
+          amountInPesewas: order.totalAmountInPesewas,
           currency: "USD",
         })
       ).rejects.toThrow(/Unsupported currency/);
@@ -846,6 +851,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const resA = await confirmVotingPayment({
         orderNumber: orderA.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: orderA.totalAmountInPesewas,
+        currency: "GHS",
         gatewayReference: sharedRef,
       });
       expect(resA.status).toBe(OrderStatus.PAID);
@@ -855,6 +862,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
         confirmVotingPayment({
           orderNumber: orderB.orderNumber,
           outcome: "SUCCESS",
+          amountInPesewas: orderB.totalAmountInPesewas,
+          currency: "GHS",
           gatewayReference: sharedRef,
         })
       ).rejects.toThrow();
@@ -884,6 +893,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const lateSuccessRes = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
 
       expect(lateSuccessRes.status).toBe(OrderStatus.QUARANTINED);
@@ -912,6 +923,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const paidRes = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
       expect(paidRes.status).toBe(OrderStatus.PAID);
 
@@ -952,6 +965,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
         confirmationTimestamp: beforeDeadline,
       });
 
@@ -977,6 +992,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
         confirmationTimestamp: exactDeadline,
       });
 
@@ -1002,6 +1019,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
         confirmationTimestamp: afterDeadline,
       });
 
@@ -1035,6 +1054,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
         confirmationTimestamp: wayAfter,
       });
 
@@ -1059,6 +1080,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res1 = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
         confirmationTimestamp: postDeadline,
       });
       expect(res1.status).toBe(OrderStatus.QUARANTINED);
@@ -1067,6 +1090,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res2 = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
         confirmationTimestamp: postDeadline,
       });
       expect(res2.status).toBe(OrderStatus.QUARANTINED);
@@ -1112,6 +1137,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
 
       expect(res.status).toBe(OrderStatus.QUARANTINED);
@@ -1170,6 +1197,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
 
       expect(res.status).toBe(OrderStatus.QUARANTINED);
@@ -1228,6 +1257,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const res = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
 
       expect(res.status).toBe(OrderStatus.QUARANTINED);
@@ -1272,6 +1303,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const lateRes = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
 
       expect(lateRes.status).toBe(OrderStatus.QUARANTINED);
@@ -1303,6 +1336,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const retryRes = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
 
       expect(retryRes.status).toBe(OrderStatus.QUARANTINED);
@@ -1327,6 +1362,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       const confirmRes = await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
       expect(confirmRes.status).toBe(OrderStatus.PAID);
 
@@ -1364,6 +1401,8 @@ describe("Milestone 3 — Payment Integrity, Concurrency & Idempotency Audit", (
       await confirmVotingPayment({
         orderNumber: order.orderNumber,
         outcome: "SUCCESS",
+        amountInPesewas: order.totalAmountInPesewas,
+        currency: "GHS",
       });
 
       const outboxItem = await prisma.emailOutbox.findFirstOrThrow({

@@ -114,6 +114,7 @@ describe("Schema Constraints & Idempotency Rules", () => {
         orderNumber: "VOTE-TEST-001",
         eventId: testEventId,
         voterPhone: "+233501234567",
+        voterEmail: "voter@nuasknust.org",
         totalVotes,
         unitPriceInPesewas,
         totalAmountInPesewas,

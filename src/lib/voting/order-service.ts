@@ -32,8 +32,9 @@ export function maskPhoneNumber(phone: string): string {
 
 export function maskEmail(email?: string | null): string | null {
   if (!email) return null;
-  const parts = email.trim().split("@");
-  if (parts.length !== 2) return null;
+  const clean = email.trim();
+  const parts = clean.split("@");
+  if (parts.length !== 2) return clean;
   const [user, domain] = parts;
   if (user.length <= 2) return `${user[0] || "*"}***@${domain}`;
   return `${user[0]}****${user[user.length - 1]}@${domain}`;
@@ -47,14 +48,14 @@ function assertIdempotencyPayloadMatches(
   existingOrder: {
     eventId: string;
     voterPhone: string;
-    voterEmail: string | null;
+    voterEmail: string;
     allocations: Array<{ nomineeId: string; numberOfVotes: number }>;
   },
   requested: CreateVotingOrderParams
 ): void {
   const phoneMatches = existingOrder.voterPhone.trim() === requested.voterPhone.trim();
   const emailMatches =
-    (existingOrder.voterEmail || "").trim().toLowerCase() ===
+    existingOrder.voterEmail.trim().toLowerCase() ===
     requested.voterEmail.trim().toLowerCase();
   const eventMatches = existingOrder.eventId === requested.eventId;
 
@@ -80,7 +81,7 @@ function mapOrderToDto(order: {
   orderNumber: string;
   eventId: string;
   voterPhone: string;
-  voterEmail: string | null;
+  voterEmail: string;
   totalVotes: number;
   unitPriceInPesewas: number;
   totalAmountInPesewas: number;
@@ -106,7 +107,7 @@ function mapOrderToDto(order: {
     orderNumber: order.orderNumber,
     eventId: order.eventId,
     maskedPhone: maskPhoneNumber(order.voterPhone),
-    voterEmail: maskEmail(order.voterEmail),
+    voterEmail: maskEmail(order.voterEmail) ?? "",
     totalVotes: order.totalVotes,
     unitPriceInPesewas: order.unitPriceInPesewas,
     totalAmountInPesewas: order.totalAmountInPesewas,
@@ -126,15 +127,15 @@ function mapOrderToDto(order: {
 }
 
 /**
- * Generates an unpredictable, human-readable order number.
- * Format: VOTE-YYMMDD-XXXXXXXX
+ * Generates an unpredictable, human-readable order number with high cryptographic entropy.
+ * Format: VOTE-YYMMDD-XXXXXXXXXXXX (12 random hex characters, 48-bit entropy)
  */
 export function generateVotingOrderNumber(eventDate?: Date): string {
   const d = eventDate ?? new Date();
   const year = d.getFullYear().toString().slice(-2);
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  const randomSuffix = crypto.randomBytes(4).toString("hex").toUpperCase();
+  const randomSuffix = crypto.randomBytes(6).toString("hex").toUpperCase();
   return `VOTE-${year}${month}${day}-${randomSuffix}`;
 }
 
@@ -148,6 +149,14 @@ export async function createVotingOrder(
 ): Promise<VotingOrderDto> {
   const { eventId, voterPhone, voterEmail, allocations, idempotencyKey, ipAddress, userAgent } =
     params;
+
+  // 0. Contact detail validation
+  if (!voterPhone || typeof voterPhone !== "string" || voterPhone.trim().length === 0) {
+    throw new VotingServiceError("A valid voter phone number is required.", 400);
+  }
+  if (!voterEmail || typeof voterEmail !== "string" || voterEmail.trim().length === 0 || !voterEmail.includes("@")) {
+    throw new VotingServiceError("A valid voter email address is required.", 400);
+  }
 
   // 1. Check idempotency key if provided
   if (idempotencyKey) {

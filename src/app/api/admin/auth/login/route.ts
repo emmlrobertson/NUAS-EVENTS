@@ -9,6 +9,8 @@ import {
   recordFailedLoginAttempt,
   clearLoginRateLimit,
 } from "@/lib/auth/rate-limiter";
+import { getClientIp } from "@/lib/security/client-ip";
+import { getEnv } from "@/lib/env";
 import { Role } from "@prisma/client";
 
 // Pre-computed dummy hash to ensure constant-time response when user is not found
@@ -19,24 +21,25 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-function getClientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
-  }
-  return "127.0.0.1";
-}
-
 export async function POST(request: Request) {
+  // Validate runtime environment configuration
+  getEnv();
+
   try {
     const ip = getClientIp(request);
-    const body = await request.json();
-    const parsed = loginSchema.safeParse(body);
+    const body = await request.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json(
+        { error: "Invalid JSON request body." },
+        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
+      );
+    }
 
+    const parsed = loginSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid email or password format." },
-        { status: 400 }
+        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
     }
 
@@ -55,6 +58,7 @@ export async function POST(request: Request) {
           status: 429,
           headers: {
             "Retry-After": String(rateLimit.retryAfterSeconds || 900),
+            "Cache-Control": "no-store, max-age=0",
           },
         }
       );
@@ -70,7 +74,7 @@ export async function POST(request: Request) {
       recordFailedLoginAttempt(rateLimitKey);
       return NextResponse.json(
         { error: "Invalid email or password credentials." },
-        { status: 401 }
+        { status: 401, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
     }
 
@@ -79,7 +83,7 @@ export async function POST(request: Request) {
       recordFailedLoginAttempt(rateLimitKey);
       return NextResponse.json(
         { error: "Invalid email or password credentials." },
-        { status: 401 }
+        { status: 401, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
     }
 
@@ -88,7 +92,7 @@ export async function POST(request: Request) {
       recordFailedLoginAttempt(rateLimitKey);
       return NextResponse.json(
         { error: "Access denied. Insufficient administrative privileges." },
-        { status: 403 }
+        { status: 403, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
     }
 
@@ -105,15 +109,23 @@ export async function POST(request: Request) {
     const token = createSessionToken(user);
     const cookieConfig = getSessionCookieConfig(token);
 
-    const response = NextResponse.json({
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
+    const response = NextResponse.json(
+      {
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        },
       },
-    });
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
 
     response.cookies.set(cookieConfig);
     return response;
@@ -121,7 +133,7 @@ export async function POST(request: Request) {
     console.error("[Admin Login Error]", error);
     return NextResponse.json(
       { error: "An unexpected authentication error occurred." },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   }
 }

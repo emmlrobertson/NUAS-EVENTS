@@ -50,6 +50,8 @@ export default function CheckoutClient({ orderNumber }: CheckoutClientProps) {
         body: JSON.stringify({
           orderNumber,
           outcome,
+          amountInPesewas: order?.totalAmountInPesewas,
+          currency: "GHS",
         }),
       });
 

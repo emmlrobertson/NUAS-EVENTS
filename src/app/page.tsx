@@ -42,7 +42,7 @@ export default async function HomePage() {
             </p>
 
             <div className="hero-countdown-wrap">
-              <Countdown targetDateIso="2026-11-21T00:00:00Z" label="Countdown to Gala Night" />
+              <Countdown targetDateIso={null} label="Official Date Coming Soon" />
             </div>
 
             <div className="announcement-card" role="region" aria-label="Official Notice">
@@ -52,7 +52,7 @@ export default async function HomePage() {
                 The NUAS KNUST planning committee has not yet published the official award categories, nominees, or venue details. Please check back shortly for the official public announcement.
               </p>
               <div className="announcement-meta">
-                <span>Date: Saturday, 21 November 2026</span>
+                <span>Date: To be announced by the planning committee</span>
                 <span>•</span>
                 <span>Location: KNUST Campus, Kumasi</span>
               </div>
@@ -64,13 +64,22 @@ export default async function HomePage() {
           <div className="footer-brand-wrap">
             <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
           </div>
-          <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
         </footer>
       </div>
     );
   }
 
-  // Published event is available
+  // Authoritative published event is available
+  const formattedEventDate = publishedEvent.eventDate.toLocaleDateString("en-GB", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const weekdayName = publishedEvent.eventDate.toLocaleDateString("en-GB", { weekday: "long" });
+
   return (
     <div className="page-wrapper">
       <header className="site-header">
@@ -126,7 +135,7 @@ export default async function HomePage() {
           <div className="hero-countdown-wrap">
             <Countdown
               targetDateIso={publishedEvent.eventDate.toISOString()}
-              label="Countdown to 21 November 2026"
+              label={`Countdown to ${formattedEventDate}`}
             />
           </div>
         </section>
@@ -142,15 +151,8 @@ export default async function HomePage() {
             <div className="info-card">
               <div className="info-card-icon" aria-hidden="true">&#128197;</div>
               <h3 className="info-card-title">Date & Schedule</h3>
-              <p className="info-card-value">
-                {publishedEvent.eventDate.toLocaleDateString("en-GB", {
-                  weekday: "long",
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </p>
-              <p className="info-card-sub">Saturday Evening • KNUST Campus</p>
+              <p className="info-card-value">{formattedEventDate}</p>
+              <p className="info-card-sub">{weekdayName} • {publishedEvent.venue || "KNUST Campus"}</p>
             </div>
 
             <div className="info-card">
@@ -179,7 +181,7 @@ export default async function HomePage() {
         <div className="footer-brand-wrap">
           <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
         </div>
-        <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
         <p className="footer-sub">A community dedicated to excellence, spiritual growth, and servant leadership.</p>
       </footer>
     </div>

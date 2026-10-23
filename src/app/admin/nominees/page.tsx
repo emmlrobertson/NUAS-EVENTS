@@ -4,36 +4,54 @@ import { getCurrentAdminUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import NomineeManager from "@/components/admin/NomineeManager";
 import NuasLogo from "@/components/NuasLogo";
+import { resolveAdminAuthoritativeEvent } from "@/lib/event-resolution";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminNomineesPage() {
+interface AdminNomineesPageProps {
+  searchParams?: {
+    eventId?: string;
+  };
+}
+
+export default async function AdminNomineesPage({ searchParams }: AdminNomineesPageProps) {
   const admin = await getCurrentAdminUser();
 
   if (!admin) {
     redirect("/admin/login");
   }
 
-  const event = await prisma.event.findFirst({
-    orderBy: { createdAt: "desc" },
-    include: {
-      categories: {
-        orderBy: { displayOrder: "asc" },
-      },
-    },
-  });
-
-  const nominees = await prisma.nominee.findMany({
-    orderBy: { displayOrder: "asc" },
-    include: {
-      category: {
-        select: {
-          id: true,
-          title: true,
+  const resolution = await resolveAdminAuthoritativeEvent(searchParams?.eventId);
+  const event = resolution.event
+    ? await prisma.event.findUnique({
+        where: { id: resolution.event.id },
+        include: {
+          categories: {
+            orderBy: { displayOrder: "asc" },
+          },
         },
-      },
-    },
-  });
+      })
+    : null;
+
+  // Filter nominees strictly by the resolved event's categories
+  const nominees = event
+    ? await prisma.nominee.findMany({
+        where: {
+          category: {
+            eventId: event.id,
+          },
+        },
+        orderBy: { displayOrder: "asc" },
+        include: {
+          category: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+        },
+      })
+    : [];
 
   return (
     <div className="admin-page-wrapper">
@@ -54,22 +72,71 @@ export default async function AdminNomineesPage() {
       <main className="admin-main">
         <div className="admin-container">
           <nav className="admin-nav-tabs">
-            <Link href="/admin" className="tab-link">
+            <Link href={event ? `/admin?eventId=${event.id}` : "/admin"} className="tab-link">
               Overview
             </Link>
-            <Link href="/admin/categories" className="tab-link">
-              Categories
+            <Link href={event ? `/admin/categories?eventId=${event.id}` : "/admin/categories"} className="tab-link">
+              Categories ({event?.categories.length || 0})
             </Link>
-            <Link href="/admin/nominees" className="tab-link tab-active">
+            <Link href={event ? `/admin/nominees?eventId=${event.id}` : "/admin/nominees"} className="tab-link tab-active">
               Nominees ({nominees.length})
+            </Link>
+            <Link href={event ? `/admin/tickets?eventId=${event.id}` : "/admin/tickets"} className="tab-link">
+              Ticket Types
             </Link>
             <Link href="/" target="_blank" className="tab-link tab-external">
               View Public Site &rarr;
             </Link>
           </nav>
 
+          {/* Event Switcher */}
+          {resolution.allEvents.length > 1 && (
+            <div
+              className="admin-info-box"
+              style={{
+                marginBottom: "1.5rem",
+                padding: "0.75rem 1rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <strong style={{ fontSize: "0.875rem", color: "var(--color-navy-dark)" }}>Active Event:</strong>{" "}
+                <span style={{ fontSize: "0.875rem" }}>{event ? event.title : "None selected"}</span>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>Switch Event:</span>
+                {resolution.allEvents.map((e) => (
+                  <Link
+                    key={e.id}
+                    href={`/admin/nominees?eventId=${e.id}`}
+                    className="logout-btn"
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "0.25rem 0.5rem",
+                      fontWeight: e.id === event?.id ? "700" : "500",
+                      borderColor: e.id === event?.id ? "var(--color-gold)" : "var(--color-border-card)",
+                      backgroundColor: e.id === event?.id ? "#fef3c7" : "transparent",
+                    }}
+                  >
+                    {e.title} ({e.status})
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {resolution.isAmbiguous && (
+            <div className="admin-alert-error" style={{ marginBottom: "1.5rem" }}>
+              <strong>Authoritative Event Ambiguity:</strong> Multiple published events exist. Please select an event above.
+            </div>
+          )}
+
           {!event ? (
-            <div className="admin-alert-error">No event found.</div>
+            <div className="admin-alert-error">No event found. Please select or seed an event.</div>
           ) : (
             <NomineeManager categories={event.categories} initialNominees={nominees} />
           )}

@@ -12,6 +12,7 @@ interface NomineeWithCategory {
   nomineeCode: string;
   displayOrder: number;
   isActive: boolean;
+  isApproved: boolean;
   category: {
     id: string;
     title: string;
@@ -32,7 +33,9 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [displayOrder, setDisplayOrder] = useState(0);
+  const [isApproved, setIsApproved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -59,6 +62,7 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
           avatarUrl: avatarUrl || null,
           displayOrder: Number(displayOrder),
           isActive: true,
+          isApproved,
         }),
       });
 
@@ -66,12 +70,13 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
       if (!res.ok) throw new Error(data.error || "Failed to create nominee");
 
       const selectedCat = categories.find((c) => c.id === categoryId);
-      setSuccess(`Nominee "${name}" (${nomineeCode.toUpperCase()}) added successfully.`);
+      setSuccess(`Nominee "${name}" (${nomineeCode.toUpperCase()}) added successfully${isApproved ? " (Approved)" : " (Pending Approval)"}.`);
       setName("");
       setNomineeCode("");
       setBio("");
       setAvatarUrl("");
       setDisplayOrder(0);
+      setIsApproved(false);
       router.refresh();
 
       setNominees((prev) => [
@@ -95,6 +100,47 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
     }
   }
 
+  async function handleToggleStatus(
+    id: string,
+    field: "isActive" | "isApproved",
+    currentValue: boolean
+  ) {
+    setActionLoadingId(`${id}-${field}`);
+    setError(null);
+    setSuccess(null);
+
+    const newValue = !currentValue;
+    try {
+      const res = await fetch("/api/admin/nominees", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          [field]: newValue,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Failed to update ${field}`);
+
+      setNominees((prev) =>
+        prev.map((nom) => (nom.id === id ? { ...nom, [field]: newValue } : nom))
+      );
+
+      const fieldLabel = field === "isApproved" ? (newValue ? "Approved" : "Unapproved (Pending)") : (newValue ? "Activated" : "Deactivated");
+      setSuccess(`Nominee "${data.nominee.name}" was ${fieldLabel} successfully.`);
+      router.refresh();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Error updating nominee status");
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
   return (
     <div className="manager-grid">
       {/* Creation Card */}
@@ -113,6 +159,9 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
               onChange={(e) => setCategoryId(e.target.value)}
               className="admin-input"
             >
+              <option value="" disabled>
+                -- Select Category --
+              </option>
               {categories.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.title}
@@ -122,46 +171,46 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
           </div>
 
           <div className="form-group">
-            <label htmlFor="nom-name">Nominee Full Name *</label>
+            <label htmlFor="nom-name">Nominee Name *</label>
             <input
               id="nom-name"
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. John Doe"
+              placeholder="e.g. Samuel K. Mensah"
               className="admin-input"
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="nom-code">Unique Nominee Code *</label>
+            <label htmlFor="nom-code">Nominee Voting Code * (e.g. EXEC-01)</label>
             <input
               id="nom-code"
               type="text"
               required
               value={nomineeCode}
-              onChange={(e) => setNomineeCode(e.target.value.toUpperCase())}
-              placeholder="e.g. EXEC-01"
+              onChange={(e) => setNomineeCode(e.target.value.toUpperCase().replace(/\s+/g, "-"))}
+              placeholder="Unique Voting Code"
               className="admin-input"
+              style={{ textTransform: "uppercase" }}
             />
-            <span className="field-hint">Used for voting lookups (uppercase alphanumeric).</span>
           </div>
 
           <div className="form-group">
-            <label htmlFor="nom-bio">Bio / Citation</label>
+            <label htmlFor="nom-bio">Short Bio or Citation</label>
             <textarea
               id="nom-bio"
-              rows={3}
+              rows={2}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              placeholder="Short bio or citation highlighting contributions"
+              placeholder="Brief biography or achievements of the nominee"
               className="admin-input"
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="nom-avatar">Avatar / Photo URL</label>
+            <label htmlFor="nom-avatar">Avatar or Photo URL</label>
             <input
               id="nom-avatar"
               type="url"
@@ -183,6 +232,19 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
             />
           </div>
 
+          <div className="form-group" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <input
+              id="nom-approved"
+              type="checkbox"
+              checked={isApproved}
+              onChange={(e) => setIsApproved(e.target.checked)}
+              style={{ width: "1rem", height: "1rem", cursor: "pointer" }}
+            />
+            <label htmlFor="nom-approved" style={{ margin: 0, cursor: "pointer", fontSize: "0.875rem" }}>
+              Approve immediately (unchecked nominees remain Pending Review)
+            </label>
+          </div>
+
           <button type="submit" disabled={loading} className="admin-submit-btn">
             {loading ? "Saving..." : "Add Nominee"}
           </button>
@@ -201,31 +263,87 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
                 <th>Code</th>
                 <th>Nominee</th>
                 <th>Category</th>
-                <th>Status</th>
+                <th>Active</th>
+                <th>Approval</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {nominees.map((nom) => (
-                <tr key={nom.id}>
-                  <td>
-                    <span className="nominee-code-pill">{nom.nomineeCode}</span>
-                  </td>
-                  <td>
-                    <strong>{nom.name}</strong>
-                    {nom.bio && <p className="table-sub">{nom.bio}</p>}
-                  </td>
-                  <td>{nom.category.title}</td>
-                  <td>
-                    <span
-                      className={`status-pill ${
-                        nom.isActive ? "status-published" : "status-draft"
-                      }`}
-                    >
-                      {nom.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {nominees.map((nom) => {
+                const isActLoading = actionLoadingId === `${nom.id}-isActive`;
+                const isAppLoading = actionLoadingId === `${nom.id}-isApproved`;
+
+                return (
+                  <tr key={nom.id}>
+                    <td>
+                      <span className="nominee-code-pill">{nom.nomineeCode}</span>
+                    </td>
+                    <td>
+                      <strong>{nom.name}</strong>
+                      {nom.bio && <p className="table-sub">{nom.bio}</p>}
+                    </td>
+                    <td>{nom.category.title}</td>
+                    <td>
+                      <span
+                        className={`status-pill ${
+                          nom.isActive ? "status-published" : "status-draft"
+                        }`}
+                      >
+                        {nom.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={`status-pill ${
+                          nom.isApproved ? "status-published" : "status-pill-pending"
+                        }`}
+                      >
+                        {nom.isApproved ? "Approved" : "Pending Review"}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          disabled={isAppLoading}
+                          onClick={() => handleToggleStatus(nom.id, "isApproved", nom.isApproved)}
+                          className="logout-btn"
+                          style={{
+                            fontSize: "0.75rem",
+                            padding: "0.2rem 0.5rem",
+                            borderColor: nom.isApproved ? "#f59e0b" : "#10b981",
+                            color: nom.isApproved ? "#b45309" : "#047857",
+                          }}
+                        >
+                          {isAppLoading
+                            ? "Updating..."
+                            : nom.isApproved
+                            ? "Revoke Approval"
+                            : "Approve"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isActLoading}
+                          onClick={() => handleToggleStatus(nom.id, "isActive", nom.isActive)}
+                          className="logout-btn"
+                          style={{
+                            fontSize: "0.75rem",
+                            padding: "0.2rem 0.5rem",
+                            borderColor: nom.isActive ? "#ef4444" : "#3b82f6",
+                            color: nom.isActive ? "#b91c1c" : "#1d4ed8",
+                          }}
+                        >
+                          {isActLoading
+                            ? "Updating..."
+                            : nom.isActive
+                            ? "Deactivate"
+                            : "Activate"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

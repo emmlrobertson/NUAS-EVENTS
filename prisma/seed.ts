@@ -1,18 +1,20 @@
 import "dotenv/config";
 import { PrismaClient, EventStatus, LatePaymentPolicy } from "@prisma/client";
+import { getEnv } from "../src/lib/env";
 
 const prisma = new PrismaClient();
 
 export async function runDevelopmentSeed() {
-  if (process.env.NODE_ENV === "production") {
+  const env = getEnv();
+  if (env.NODE_ENV === "production") {
     throw new Error(
       "[FATAL SAFETY] Development seed script cannot run in production (NODE_ENV=production). " +
         "Mock and demo data must never be seeded into production."
     );
   }
 
-  if (process.env.ALLOW_TEST_SEEDING !== "true") {
-    console.log("[seed] ALLOW_TEST_SEEDING is not true. Skipping test data seeding.");
+  if (!env.ALLOW_TEST_SEEDING) {
+    console.log("[seed] ALLOW_TEST_SEEDING is disabled. Skipping test data seeding.");
     return;
   }
 
@@ -32,7 +34,7 @@ export async function runDevelopmentSeed() {
       eventDate: new Date("2026-11-21T18:00:00Z"),
       votingStartDate: new Date("2026-11-01T00:00:00Z"),
       votingEndDate: new Date("2026-11-21T17:00:00Z"),
-      latePaymentGraceMinutes: 15,
+      latePaymentGraceMinutes: 0,
       latePaymentPolicy: LatePaymentPolicy.MANUAL_QUARANTINE,
       status: EventStatus.DRAFT, // MUST BE DRAFT
     },

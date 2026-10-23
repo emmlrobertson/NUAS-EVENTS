@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 interface CountdownProps {
-  targetDateIso: string;
+  targetDateIso?: string | null;
   label?: string;
 }
 
@@ -33,9 +33,8 @@ function calculateTimeRemaining(targetTimestamp: number): TimeRemaining {
 
 export default function Countdown({
   targetDateIso,
-  label = "Countdown to Saturday, 21 November 2026",
+  label,
 }: CountdownProps) {
-  const targetTimestamp = new Date(targetDateIso).getTime();
   const [mounted, setMounted] = useState(false);
   const [timeLeft, setTimeLeft] = useState<TimeRemaining>({
     days: 0,
@@ -45,24 +44,56 @@ export default function Countdown({
     isPast: false,
   });
 
+  const parsedTimestamp = targetDateIso ? new Date(targetDateIso).getTime() : NaN;
+  const hasValidTarget = !isNaN(parsedTimestamp);
+
+  const displayLabel =
+    label ||
+    (hasValidTarget
+      ? `Countdown to ${new Date(parsedTimestamp).toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })}`
+      : "Event Date To Be Announced");
+
   useEffect(() => {
     setMounted(true);
-    setTimeLeft(calculateTimeRemaining(targetTimestamp));
+    if (!hasValidTarget) return;
+
+    setTimeLeft(calculateTimeRemaining(parsedTimestamp));
 
     const interval = setInterval(() => {
-      setTimeLeft(calculateTimeRemaining(targetTimestamp));
+      setTimeLeft(calculateTimeRemaining(parsedTimestamp));
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [targetTimestamp]);
+  }, [hasValidTarget, parsedTimestamp]);
+
+  if (!hasValidTarget) {
+    return (
+      <div className="countdown-container">
+        <p className="countdown-label">{displayLabel}</p>
+        <span className="countdown-provisional-note">
+          Official event schedule to be announced by the planning committee
+        </span>
+        <div className="countdown-boxes">
+          <div className="countdown-box"><span className="countdown-value">--</span><span className="countdown-unit">Days</span></div>
+          <div className="countdown-box"><span className="countdown-value">--</span><span className="countdown-unit">Hours</span></div>
+          <div className="countdown-box"><span className="countdown-value">--</span><span className="countdown-unit">Mins</span></div>
+          <div className="countdown-box"><span className="countdown-value">--</span><span className="countdown-unit">Secs</span></div>
+        </div>
+      </div>
+    );
+  }
 
   if (!mounted) {
     // Render static placeholder during SSR to avoid hydration mismatch
     return (
       <div className="countdown-container">
-        <p className="countdown-label">{label}</p>
+        <p className="countdown-label">{displayLabel}</p>
         <span className="countdown-provisional-note">
-          Date-only provisional countdown • Official event start time to be announced
+          Provisional countdown • Subject to official ceremony commencement
         </span>
         <div className="countdown-boxes">
           <div className="countdown-box"><span className="countdown-value">--</span><span className="countdown-unit">Days</span></div>
@@ -77,7 +108,7 @@ export default function Countdown({
   if (timeLeft.isPast) {
     return (
       <div className="countdown-container">
-        <p className="countdown-label">{label}</p>
+        <p className="countdown-label">{displayLabel}</p>
         <div className="countdown-past-badge">Event Day Has Arrived</div>
       </div>
     );
@@ -85,11 +116,11 @@ export default function Countdown({
 
   return (
     <div className="countdown-container">
-      <p className="countdown-label">{label}</p>
+      <p className="countdown-label">{displayLabel}</p>
       <span className="countdown-provisional-note">
-        Date-only provisional countdown • Official event start time to be announced
+        Official event date countdown • Knust Campus
       </span>
-      <div className="countdown-boxes" role="timer" aria-label={label}>
+      <div className="countdown-boxes" role="timer" aria-label={displayLabel}>
         <div className="countdown-box">
           <span className="countdown-value">{String(timeLeft.days).padStart(2, "0")}</span>
           <span className="countdown-unit">Days</span>

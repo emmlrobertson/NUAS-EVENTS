@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkoutRequestSchema } from "@/lib/voting/validation";
 import { createVotingOrder, VotingServiceError } from "@/lib/voting/order-service";
-import { checkCheckoutRateLimit } from "@/lib/voting/rate-limiter";
+import { checkCheckoutRateLimit, getClientIp } from "@/lib/voting/rate-limiter";
 import { SandboxMockPaymentGateway } from "@/lib/voting/payment-adapter";
+import { getEnv } from "@/lib/env";
 
 export async function POST(request: NextRequest) {
+  // Enforce runtime environment configuration
+  getEnv();
+
   try {
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      "127.0.0.1";
+    const ip = getClientIp(request);
 
     const rateCheck = checkCheckoutRateLimit(ip);
     if (!rateCheck.allowed) {
@@ -22,6 +23,7 @@ export async function POST(request: NextRequest) {
           status: 429,
           headers: {
             "Retry-After": String(rateCheck.retryAfterSeconds ?? 60),
+            "Cache-Control": "no-store, max-age=0",
           },
         }
       );
@@ -29,7 +31,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => null);
     if (!body) {
-      return NextResponse.json({ error: "Invalid JSON body provided." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid JSON body provided." },
+        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
+      );
     }
 
     const parsed = checkoutRequestSchema.safeParse(body);
@@ -40,7 +45,7 @@ export async function POST(request: NextRequest) {
           error: issues[0] || "Invalid checkout payload.",
           details: issues,
         },
-        { status: 400 }
+        { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
     }
 
@@ -74,17 +79,25 @@ export async function POST(request: NextRequest) {
         order,
         paymentSession,
       },
-      { status: 201 }
+      {
+        status: 201,
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
     );
   } catch (err: unknown) {
     if (err instanceof VotingServiceError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode });
+      return NextResponse.json(
+        { error: err.message },
+        { status: err.statusCode, headers: { "Cache-Control": "no-store, max-age=0" } }
+      );
     }
 
     console.error("[Voting Checkout Error]", err);
     return NextResponse.json(
       { error: "An unexpected error occurred while preparing your checkout. Please try again." },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } }
     );
   }
 }

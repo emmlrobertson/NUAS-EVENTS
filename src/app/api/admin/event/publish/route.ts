@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAdminUser, validateCsrfProtection } from "@/lib/auth/session";
@@ -68,6 +69,14 @@ export async function POST(request: Request) {
 
       return event;
     });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/categories");
+      revalidatePath("/vote");
+    } catch {
+      // Ignore in non-request/test environments
+    }
 
     return NextResponse.json({
       success: true,

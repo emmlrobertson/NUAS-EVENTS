@@ -28,6 +28,26 @@ export default function NomineeShowcase({ categories }: NomineeShowcaseProps) {
         <p className="section-subtitle">
           Explore the recognized student leaders, innovators, and dedicated members nominated for the 2026 Dinner and Awards Night.
         </p>
+        <div style={{ marginTop: "0.75rem", textAlign: "center" }}>
+          <Link
+            href="/categories"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              fontSize: "0.85rem",
+              color: "var(--gold)",
+              textDecoration: "none",
+              fontWeight: 500,
+              padding: "0.3rem 0.8rem",
+              borderRadius: "9999px",
+              background: "rgba(212, 175, 55, 0.08)",
+              border: "1px solid rgba(212, 175, 55, 0.2)",
+            }}
+          >
+            <span>Browse Full Award Categories Directory &rarr;</span>
+          </Link>
+        </div>
       </div>
 
       {/* Category Filter Navigation */}
