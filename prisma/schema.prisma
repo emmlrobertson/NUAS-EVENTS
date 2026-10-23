@@ -187,6 +187,7 @@ model VotingOrder {
   unitPriceInPesewas   Int               @default(150) // Fixed: GH₵1.50 = 150 pesewas
   totalAmountInPesewas Int               // totalVotes * 150 (computed server-side)
   status               OrderStatus       @default(PENDING)
+  idempotencyKey       String?           @unique
   quarantineReason     String?           // Recorded if status becomes QUARANTINED
   initiatedAt          DateTime          @default(now())
   paidAt               DateTime?

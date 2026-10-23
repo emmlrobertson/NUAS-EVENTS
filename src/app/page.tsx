@@ -74,6 +74,9 @@ export default async function HomePage() {
           <nav className="header-nav" aria-label="Main Navigation">
             <a href="#about" className="nav-link">Event Info</a>
             <a href="#awards" className="nav-link">Nominees</a>
+            <Link href="/vote" className="nav-vote-cta">
+              Vote Now &rarr;
+            </Link>
             <Link href="/admin/login" className="nav-admin-link">
               Admin Login
             </Link>
@@ -98,6 +101,15 @@ export default async function HomePage() {
           <p className="hero-description">
             Join the fellowship of believers, student leaders, and alumni for an unforgettable evening honoring dedication, ministry excellence, and academic achievement.
           </p>
+
+          <div style={{ display: "flex", gap: "1rem", justifyContent: "center", margin: "1.5rem 0" }}>
+            <Link href="/vote" className="btn-primary-inline" style={{ padding: "0.75rem 1.75rem", fontSize: "1rem" }}>
+              Cast Your Votes (GH₵1.50) &rarr;
+            </Link>
+            <a href="#awards" className="btn-secondary-inline" style={{ padding: "0.75rem 1.75rem", fontSize: "1rem" }}>
+              Explore Nominees
+            </a>
+          </div>
 
           <div className="hero-countdown-wrap">
             <Countdown

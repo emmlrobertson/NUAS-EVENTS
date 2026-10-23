@@ -105,8 +105,16 @@ export default async function NomineeDetailPage({ params }: NomineePageProps) {
               <div className="notice-content">
                 <h3 className="notice-title">Voting Information</h3>
                 <p className="notice-text">
-                  Voting opens prior to the gala night at <strong>GH₵1.50 per vote</strong>. When voting commences, voters will be able to allocate multiple votes across categories in a single checkout.
+                  Voting is conducted authoritatively at <strong>GH₵1.50 per vote (150 pesewas)</strong>. You can allocate multiple votes to {nominee.name} and other nominees in a single checkout order.
                 </p>
+                <div style={{ marginTop: "1.25rem" }}>
+                  <Link
+                    href={`/vote?nominee=${encodeURIComponent(nominee.nomineeCode)}`}
+                    className="btn-primary-inline"
+                  >
+                    Vote for {nominee.name} &rarr;
+                  </Link>
+                </div>
               </div>
             </div>
 

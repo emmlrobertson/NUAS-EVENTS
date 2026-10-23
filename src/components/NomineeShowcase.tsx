@@ -103,7 +103,14 @@ export default function NomineeShowcase({ categories }: NomineeShowcaseProps) {
                   className="nominee-profile-btn"
                   aria-label={`View profile of ${nominee.name}`}
                 >
-                  View Profile &rarr;
+                  Profile
+                </Link>
+                <Link
+                  href={`/vote?nominee=${encodeURIComponent(nominee.nomineeCode)}`}
+                  className="nominee-vote-cta-btn"
+                  aria-label={`Vote for ${nominee.name}`}
+                >
+                  Vote &rarr;
                 </Link>
               </div>
             </article>
