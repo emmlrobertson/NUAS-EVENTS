@@ -28,6 +28,30 @@ const envSchema = z
       message: "SESSION_SECRET must be at least 32 characters long in production",
       path: ["SESSION_SECRET"],
     }
+  )
+  .refine(
+    (data) => {
+      if (data.NODE_ENV === "production" && data.ENABLE_LIVE_PAYMENTS && data.PAYMENT_PROVIDER === "SANDBOX_MOCK") {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Live payments cannot be enabled with SANDBOX_MOCK payment provider in production.",
+      path: ["PAYMENT_PROVIDER"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.ENABLE_LIVE_PAYMENTS && data.PAYMENT_PROVIDER === "PAYSTACK") {
+        return !!data.PAYSTACK_SECRET_KEY && data.PAYSTACK_SECRET_KEY.length > 0;
+      }
+      return true;
+    },
+    {
+      message: "PAYSTACK_SECRET_KEY is required when live payments are enabled with Paystack.",
+      path: ["PAYSTACK_SECRET_KEY"],
+    }
   );
 
 export type Env = z.infer<typeof envSchema>;

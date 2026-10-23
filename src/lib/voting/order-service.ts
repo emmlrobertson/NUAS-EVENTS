@@ -30,6 +30,101 @@ export function maskPhoneNumber(phone: string): string {
   return `${prefix}****${suffix}`;
 }
 
+export function maskEmail(email?: string | null): string | null {
+  if (!email) return null;
+  const parts = email.trim().split("@");
+  if (parts.length !== 2) return null;
+  const [user, domain] = parts;
+  if (user.length <= 2) return `${user[0] || "*"}***@${domain}`;
+  return `${user[0]}****${user[user.length - 1]}@${domain}`;
+}
+
+/**
+ * Asserts that an existing order with the same idempotency key was created
+ * with the exact same logical request payload. Prevents key reuse attacks.
+ */
+function assertIdempotencyPayloadMatches(
+  existingOrder: {
+    eventId: string;
+    voterPhone: string;
+    voterEmail: string | null;
+    allocations: Array<{ nomineeId: string; numberOfVotes: number }>;
+  },
+  requested: CreateVotingOrderParams
+): void {
+  const phoneMatches = existingOrder.voterPhone.trim() === requested.voterPhone.trim();
+  const emailMatches =
+    (existingOrder.voterEmail || "").trim().toLowerCase() ===
+    requested.voterEmail.trim().toLowerCase();
+  const eventMatches = existingOrder.eventId === requested.eventId;
+
+  const existingAllocMap = new Map(
+    existingOrder.allocations.map((a) => [a.nomineeId, a.numberOfVotes])
+  );
+  const allocMatches =
+    existingOrder.allocations.length === requested.allocations.length &&
+    requested.allocations.every(
+      (a) => existingAllocMap.get(a.nomineeId) === a.numberOfVotes
+    );
+
+  if (!phoneMatches || !emailMatches || !eventMatches || !allocMatches) {
+    throw new VotingServiceError(
+      "The provided idempotency key has already been used for an order with different details or allocations.",
+      409
+    );
+  }
+}
+
+function mapOrderToDto(order: {
+  id: string;
+  orderNumber: string;
+  eventId: string;
+  voterPhone: string;
+  voterEmail: string | null;
+  totalVotes: number;
+  unitPriceInPesewas: number;
+  totalAmountInPesewas: number;
+  status: OrderStatus;
+  initiatedAt: Date;
+  paidAt: Date | null;
+  allocations: Array<{
+    id: string;
+    nomineeId: string;
+    numberOfVotes: number;
+    subtotalInPesewas: number;
+    nominee: {
+      name: string;
+      nomineeCode: string;
+      category: {
+        title: string;
+      };
+    };
+  }>;
+}): VotingOrderDto {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    eventId: order.eventId,
+    maskedPhone: maskPhoneNumber(order.voterPhone),
+    voterEmail: maskEmail(order.voterEmail),
+    totalVotes: order.totalVotes,
+    unitPriceInPesewas: order.unitPriceInPesewas,
+    totalAmountInPesewas: order.totalAmountInPesewas,
+    status: order.status,
+    initiatedAt: order.initiatedAt,
+    paidAt: order.paidAt,
+    allocations: order.allocations.map((a) => ({
+      id: a.id,
+      nomineeId: a.nomineeId,
+      nomineeName: a.nominee.name,
+      nomineeCode: a.nominee.nomineeCode,
+      categoryTitle: a.nominee.category.title,
+      numberOfVotes: a.numberOfVotes,
+      subtotalInPesewas: a.subtotalInPesewas,
+    })),
+  };
+}
+
 /**
  * Generates an unpredictable, human-readable order number.
  * Format: VOTE-YYMMDD-XXXXXXXX
@@ -72,28 +167,8 @@ export async function createVotingOrder(
     });
 
     if (existingOrder) {
-      return {
-        id: existingOrder.id,
-        orderNumber: existingOrder.orderNumber,
-        eventId: existingOrder.eventId,
-        maskedPhone: maskPhoneNumber(existingOrder.voterPhone),
-        voterEmail: existingOrder.voterEmail,
-        totalVotes: existingOrder.totalVotes,
-        unitPriceInPesewas: existingOrder.unitPriceInPesewas,
-        totalAmountInPesewas: existingOrder.totalAmountInPesewas,
-        status: existingOrder.status,
-        initiatedAt: existingOrder.initiatedAt,
-        paidAt: existingOrder.paidAt,
-        allocations: existingOrder.allocations.map((a) => ({
-          id: a.id,
-          nomineeId: a.nomineeId,
-          nomineeName: a.nominee.name,
-          nomineeCode: a.nominee.nomineeCode,
-          categoryTitle: a.nominee.category.title,
-          numberOfVotes: a.numberOfVotes,
-          subtotalInPesewas: a.subtotalInPesewas,
-        })),
-      };
+      assertIdempotencyPayloadMatches(existingOrder, params);
+      return mapOrderToDto(existingOrder);
     }
   }
 
@@ -209,85 +284,96 @@ export async function createVotingOrder(
   const orderNumber = generateVotingOrderNumber(event.eventDate);
 
   // 7. Atomic Order Creation
-  const newOrder = await prisma.$transaction(async (tx) => {
-    const created = await tx.votingOrder.create({
-      data: {
-        orderNumber,
-        eventId: event.id,
-        voterPhone: voterPhone.trim(),
-        voterEmail: voterEmail?.trim() || null,
-        totalVotes,
-        unitPriceInPesewas: VOTE_UNIT_PRICE_PESEWAS,
-        totalAmountInPesewas,
-        status: OrderStatus.PENDING,
-        idempotencyKey: idempotencyKey ?? null,
-        allocations: {
-          create: calculatedAllocations.map((a) => ({
-            nomineeId: a.nomineeId,
-            numberOfVotes: a.numberOfVotes,
-            subtotalInPesewas: a.subtotalInPesewas,
-          })),
+  try {
+    const newOrder = await prisma.$transaction(async (tx) => {
+      const created = await tx.votingOrder.create({
+        data: {
+          orderNumber,
+          eventId: event.id,
+          voterPhone: voterPhone.trim(),
+          voterEmail: voterEmail.trim().toLowerCase(),
+          totalVotes,
+          unitPriceInPesewas: VOTE_UNIT_PRICE_PESEWAS,
+          totalAmountInPesewas,
+          status: OrderStatus.PENDING,
+          idempotencyKey: idempotencyKey ?? null,
+          allocations: {
+            create: calculatedAllocations.map((a) => ({
+              nomineeId: a.nomineeId,
+              numberOfVotes: a.numberOfVotes,
+              subtotalInPesewas: a.subtotalInPesewas,
+            })),
+          },
         },
-      },
-      include: {
-        allocations: {
-          include: {
-            nominee: {
-              include: {
-                category: true,
+        include: {
+          allocations: {
+            include: {
+              nominee: {
+                include: {
+                  category: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    await tx.auditLog.create({
-      data: {
-        action: "VOTING_ORDER_CREATED",
-        entity: "VotingOrder",
-        entityId: created.id,
-        details: {
-          orderNumber: created.orderNumber,
-          totalVotes: created.totalVotes,
-          totalAmountInPesewas: created.totalAmountInPesewas,
-          allocationsCount: created.allocations.length,
+      await tx.auditLog.create({
+        data: {
+          action: "VOTING_ORDER_CREATED",
+          entity: "VotingOrder",
+          entityId: created.id,
+          details: {
+            orderNumber: created.orderNumber,
+            totalVotes: created.totalVotes,
+            totalAmountInPesewas: created.totalAmountInPesewas,
+            allocationsCount: created.allocations.length,
+          },
+          ipAddress: ipAddress ?? null,
+          userAgent: userAgent ?? null,
         },
-        ipAddress: ipAddress ?? null,
-        userAgent: userAgent ?? null,
-      },
+      });
+
+      return created;
     });
 
-    return created;
-  });
+    return mapOrderToDto(newOrder);
+  } catch (err: unknown) {
+    // If concurrent race condition occurred on idempotencyKey unique constraint:
+    if (
+      idempotencyKey &&
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code: string }).code === "P2002"
+    ) {
+      const concurrentOrder = await prisma.votingOrder.findUnique({
+        where: { idempotencyKey },
+        include: {
+          allocations: {
+            include: {
+              nominee: {
+                include: {
+                  category: true,
+                },
+              },
+            },
+          },
+        },
+      });
 
-  return {
-    id: newOrder.id,
-    orderNumber: newOrder.orderNumber,
-    eventId: newOrder.eventId,
-    maskedPhone: maskPhoneNumber(newOrder.voterPhone),
-    voterEmail: newOrder.voterEmail,
-    totalVotes: newOrder.totalVotes,
-    unitPriceInPesewas: newOrder.unitPriceInPesewas,
-    totalAmountInPesewas: newOrder.totalAmountInPesewas,
-    status: newOrder.status,
-    initiatedAt: newOrder.initiatedAt,
-    paidAt: newOrder.paidAt,
-    allocations: newOrder.allocations.map((a) => ({
-      id: a.id,
-      nomineeId: a.nomineeId,
-      nomineeName: a.nominee.name,
-      nomineeCode: a.nominee.nomineeCode,
-      categoryTitle: a.nominee.category.title,
-      numberOfVotes: a.numberOfVotes,
-      subtotalInPesewas: a.subtotalInPesewas,
-    })),
-  };
+      if (concurrentOrder) {
+        assertIdempotencyPayloadMatches(concurrentOrder, params);
+        return mapOrderToDto(concurrentOrder);
+      }
+    }
+    throw err;
+  }
 }
 
 /**
  * Retrieves a voting order by order number for checkout and payment tracking.
- * Omits private voter data (phone is masked, internal IDs excluded).
+ * Omits private voter data (phone is masked, email is masked, internal IDs excluded).
  */
 export async function getVotingOrderByNumber(
   orderNumber: string
@@ -309,26 +395,5 @@ export async function getVotingOrderByNumber(
 
   if (!order) return null;
 
-  return {
-    id: order.id,
-    orderNumber: order.orderNumber,
-    eventId: order.eventId,
-    maskedPhone: maskPhoneNumber(order.voterPhone),
-    voterEmail: order.voterEmail,
-    totalVotes: order.totalVotes,
-    unitPriceInPesewas: order.unitPriceInPesewas,
-    totalAmountInPesewas: order.totalAmountInPesewas,
-    status: order.status,
-    initiatedAt: order.initiatedAt,
-    paidAt: order.paidAt,
-    allocations: order.allocations.map((a) => ({
-      id: a.id,
-      nomineeId: a.nomineeId,
-      nomineeName: a.nominee.name,
-      nomineeCode: a.nominee.nomineeCode,
-      categoryTitle: a.nominee.category.title,
-      numberOfVotes: a.numberOfVotes,
-      subtotalInPesewas: a.subtotalInPesewas,
-    })),
-  };
+  return mapOrderToDto(order);
 }

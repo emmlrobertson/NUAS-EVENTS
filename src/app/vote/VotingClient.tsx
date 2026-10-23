@@ -103,13 +103,18 @@ export default function VotingClient({ event, initialNomineeCode }: VotingClient
       return;
     }
 
+    if (!voterEmail.trim()) {
+      setErrorMessage("Please enter your email address for your official digital voting receipt.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       const payload = {
         eventId: event.id,
         voterPhone: voterPhone.trim(),
-        voterEmail: voterEmail.trim() || undefined,
+        voterEmail: voterEmail.trim(),
         allocations: cartItems.map((item) => ({
           nomineeId: item.nominee.id,
           numberOfVotes: item.numberOfVotes,
@@ -379,17 +384,18 @@ export default function VotingClient({ event, initialNomineeCode }: VotingClient
 
             <div className="form-group">
               <label htmlFor="voterEmail" className="form-label">
-                Email Address <span className="field-optional">(Optional)</span>
+                Email Address <span className="field-required">*</span>
               </label>
               <input
                 id="voterEmail"
                 type="email"
+                required
                 placeholder="you@example.com"
                 value={voterEmail}
                 onChange={(e) => setVoterEmail(e.target.value)}
                 className="form-input"
               />
-              <span className="field-help">Receive official digital voting receipt</span>
+              <span className="field-help">Required for official digital voting receipt</span>
             </div>
 
             {errorMessage && (

@@ -29,11 +29,9 @@ export const checkoutRequestSchema = z
         "Please provide a valid phone number (e.g., 024XXXXXXX or +233XXXXXXXXX)"
       ),
     voterEmail: z
-      .string()
+      .string({ required_error: "Email address is required for your official digital voting receipt." })
       .trim()
-      .email("Please provide a valid email address")
-      .optional()
-      .or(z.literal("")),
+      .email("Please provide a valid email address for your official digital voting receipt."),
     allocations: z
       .array(voteAllocationSchema)
       .min(1, "Your cart must contain at least one nominee allocation")
@@ -62,6 +60,8 @@ export type CheckoutRequestInput = z.infer<typeof checkoutRequestSchema>;
 export const sandboxSimulationSchema = z.object({
   orderNumber: z.string().min(1, "Order number is required"),
   outcome: z.enum(["SUCCESS", "FAILED", "CANCELLED"]),
+  amountInPesewas: z.number().int().positive().optional(),
+  currency: z.string().optional(),
 });
 
 export type SandboxSimulationInput = z.infer<typeof sandboxSimulationSchema>;

@@ -39,7 +39,7 @@ export interface CalculatedOrderSummary {
 export interface CreateVotingOrderParams {
   eventId: string;
   voterPhone: string;
-  voterEmail?: string;
+  voterEmail: string;
   allocations: Array<{
     nomineeId: string;
     numberOfVotes: number;

@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     const order = await createVotingOrder({
       eventId: parsed.data.eventId,
       voterPhone: parsed.data.voterPhone,
-      voterEmail: parsed.data.voterEmail || undefined,
+      voterEmail: parsed.data.voterEmail,
       allocations: parsed.data.allocations,
       idempotencyKey: parsed.data.idempotencyKey,
       ipAddress: ip,
