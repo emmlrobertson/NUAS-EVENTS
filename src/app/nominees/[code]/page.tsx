@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getApprovedNomineeByCode } from "@/lib/public-data";
+import NuasLogo from "@/components/NuasLogo";
 
 interface NomineePageProps {
   params: {
@@ -36,10 +37,7 @@ export default async function NomineeDetailPage({ params }: NomineePageProps) {
     <div className="page-wrapper">
       <header className="site-header">
         <div className="header-inner">
-          <Link href="/" className="brand">
-            <span className="brand-badge">NUAS</span>
-            <span className="brand-text">KNUST AWARDS 2026</span>
-          </Link>
+          <NuasLogo size="sm" variant="header" href="/" />
           <nav className="header-nav" aria-label="Breadcrumb Navigation">
             <Link href="/#awards" className="nav-link">
               &larr; Back to Nominees
@@ -128,7 +126,10 @@ export default async function NomineeDetailPage({ params }: NomineePageProps) {
       </main>
 
       <footer className="site-footer">
-        <p>&copy; 2026 National Union of Adventist Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        <div className="footer-brand-wrap">
+          <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+        </div>
+        <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
       </footer>
     </div>
   );

@@ -3,7 +3,11 @@ import "@/styles/globals.css";
 
 export const metadata: Metadata = {
   title: "NUAS KNUST Dinner & Awards Night 2026",
-  description: "Official portal for the NUAS KNUST Dinner and Awards Night. Browse nominees, vote across categories, and book gala tickets.",
+  description: "Official portal for the National Union of Anglican Students (NUAS), KNUST Chapter Annual Dinner and Awards Night. Celebrate student ministry, vote across categories, and book gala tickets.",
+  icons: {
+    icon: "/images/nuas-logo.png",
+    apple: "/images/nuas-logo.png",
+  },
 };
 
 export default function RootLayout({

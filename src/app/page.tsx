@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getPublishedEvent } from "@/lib/public-data";
 import Countdown from "@/components/Countdown";
 import NomineeShowcase from "@/components/NomineeShowcase";
+import NuasLogo from "@/components/NuasLogo";
 
 export const revalidate = 60; // ISR cache revalidation every 60s for high mobile performance
 
@@ -14,10 +15,7 @@ export default async function HomePage() {
       <div className="page-wrapper">
         <header className="site-header">
           <div className="header-inner">
-            <div className="brand">
-              <span className="brand-badge">NUAS</span>
-              <span className="brand-text">KNUST AWARDS 2026</span>
-            </div>
+            <NuasLogo size="sm" variant="header" href="/" />
             <nav className="header-nav" aria-label="Main Navigation">
               <Link href="/admin/login" className="nav-admin-link">
                 Executive Portal
@@ -28,12 +26,15 @@ export default async function HomePage() {
 
         <main className="main-content">
           <section className="hero-section" aria-labelledby="hero-title">
+            <div className="hero-crest-badge">
+              <NuasLogo size="xl" variant="hero" showText={false} />
+            </div>
             <span className="hero-kicker">ANNUAL GALA & CITATION CEREMONY</span>
             <h1 id="hero-title" className="hero-title">
               NUAS KNUST Dinner & Awards Night
             </h1>
             <p className="hero-description">
-              Celebrating faith, leadership, and outstanding service within the National Union of Adventist Students, Kwame Nkrumah University of Science and Technology Chapter.
+              Celebrating faith, leadership, and outstanding service within the National Union of Anglican Students, Kwame Nkrumah University of Science and Technology Chapter.
             </p>
 
             <div className="hero-countdown-wrap">
@@ -56,7 +57,10 @@ export default async function HomePage() {
         </main>
 
         <footer className="site-footer">
-          <p>&copy; 2026 National Union of Adventist Students (NUAS), KNUST Chapter. All rights reserved.</p>
+          <div className="footer-brand-wrap">
+            <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+          </div>
+          <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
         </footer>
       </div>
     );
@@ -67,10 +71,7 @@ export default async function HomePage() {
     <div className="page-wrapper">
       <header className="site-header">
         <div className="header-inner">
-          <div className="brand">
-            <span className="brand-badge">NUAS</span>
-            <span className="brand-text">KNUST AWARDS 2026</span>
-          </div>
+          <NuasLogo size="sm" variant="header" href="/" />
           <nav className="header-nav" aria-label="Main Navigation">
             <a href="#about" className="nav-link">Event Info</a>
             <a href="#awards" className="nav-link">Nominees</a>
@@ -87,6 +88,9 @@ export default async function HomePage() {
       <main className="main-content">
         {/* Hero Section */}
         <section className="hero-section" aria-labelledby="hero-title">
+          <div className="hero-crest-badge">
+            <NuasLogo size="xl" variant="hero" showText={false} />
+          </div>
           <span className="hero-kicker">ANNUAL GALA & AWARDS CEREMONY</span>
           <h1 id="hero-title" className="hero-title">
             {publishedEvent.title}
@@ -102,11 +106,11 @@ export default async function HomePage() {
             Join the fellowship of believers, student leaders, and alumni for an unforgettable evening honoring dedication, ministry excellence, and academic achievement.
           </p>
 
-          <div style={{ display: "flex", gap: "1rem", justifyContent: "center", margin: "1.5rem 0" }}>
-            <Link href="/vote" className="btn-primary-inline" style={{ padding: "0.75rem 1.75rem", fontSize: "1rem" }}>
+          <div style={{ display: "flex", gap: "1rem", justifyContent: "center", margin: "1.5rem 0", flexWrap: "wrap" }}>
+            <Link href="/vote" className="btn-primary-inline">
               Cast Your Votes (GH₵1.50) &rarr;
             </Link>
-            <a href="#awards" className="btn-secondary-inline" style={{ padding: "0.75rem 1.75rem", fontSize: "1rem" }}>
+            <a href="#awards" className="btn-secondary-inline">
               Explore Nominees
             </a>
           </div>
@@ -164,7 +168,10 @@ export default async function HomePage() {
       </main>
 
       <footer className="site-footer">
-        <p>&copy; 2026 National Union of Adventist Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        <div className="footer-brand-wrap">
+          <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+        </div>
+        <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
         <p className="footer-sub">A community dedicated to excellence, spiritual growth, and servant leadership.</p>
       </footer>
     </div>

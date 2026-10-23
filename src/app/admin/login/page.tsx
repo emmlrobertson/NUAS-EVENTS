@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import NuasLogo from "@/components/NuasLogo";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -46,7 +47,9 @@ export default function AdminLoginPage() {
     <div className="admin-login-wrapper">
       <div className="admin-login-card">
         <div className="admin-login-header">
-          <span className="brand-badge">NUAS KNUST</span>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "1rem" }}>
+            <NuasLogo size="lg" variant="hero" showText={true} showMotto={true} />
+          </div>
           <h1 className="admin-login-title">Executive Back-Office</h1>
           <p className="admin-login-sub">Enter credentials to manage awards, categories, and event publishing.</p>
         </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { VotingOrderDto } from "@/lib/voting/types";
+import NuasLogo from "@/components/NuasLogo";
 
 interface CheckoutClientProps {
   orderNumber: string;
@@ -102,9 +103,12 @@ export default function CheckoutClient({ orderNumber }: CheckoutClientProps) {
       <div className="checkout-card">
         {/* Header & Status */}
         <div className="checkout-card-header">
-          <div>
-            <span className="order-kicker">VOTING ORDER SUMMARY</span>
-            <h1 className="order-title">{order.orderNumber}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.85rem" }}>
+            <NuasLogo size="sm" showText={false} variant="header" />
+            <div>
+              <span className="order-kicker">VOTING ORDER SUMMARY</span>
+              <h1 className="order-title">{order.orderNumber}</h1>
+            </div>
           </div>
           <div className={`status-pill status-pill-${order.status.toLowerCase()}`}>
             {order.status === "PAID"

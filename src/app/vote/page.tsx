@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { getPublishedEvent } from "@/lib/public-data";
 import VotingClient from "./VotingClient";
+import NuasLogo from "@/components/NuasLogo";
 
 export const revalidate = 30;
 
@@ -26,10 +27,7 @@ export default async function VotePage({ searchParams }: VotePageProps) {
       <div className="page-wrapper">
         <header className="site-header">
           <div className="header-inner">
-            <Link href="/" className="brand">
-              <span className="brand-badge">NUAS</span>
-              <span className="brand-text">KNUST AWARDS 2026</span>
-            </Link>
+            <NuasLogo size="sm" variant="header" href="/" />
             <nav className="header-nav" aria-label="Main Navigation">
               <Link href="/" className="nav-link">
                 Home
@@ -52,6 +50,13 @@ export default async function VotePage({ searchParams }: VotePageProps) {
             </div>
           </div>
         </main>
+
+        <footer className="site-footer">
+          <div className="footer-brand-wrap">
+            <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+          </div>
+          <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        </footer>
       </div>
     );
   }
@@ -65,10 +70,7 @@ export default async function VotePage({ searchParams }: VotePageProps) {
       <div className="page-wrapper">
         <header className="site-header">
           <div className="header-inner">
-            <Link href="/" className="brand">
-              <span className="brand-badge">NUAS</span>
-              <span className="brand-text">KNUST AWARDS 2026</span>
-            </Link>
+            <NuasLogo size="sm" variant="header" href="/" />
             <nav className="header-nav" aria-label="Main Navigation">
               <Link href="/" className="nav-link">
                 Home
@@ -95,6 +97,13 @@ export default async function VotePage({ searchParams }: VotePageProps) {
             </div>
           </div>
         </main>
+
+        <footer className="site-footer">
+          <div className="footer-brand-wrap">
+            <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+          </div>
+          <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        </footer>
       </div>
     );
   }
@@ -103,10 +112,7 @@ export default async function VotePage({ searchParams }: VotePageProps) {
     <div className="page-wrapper">
       <header className="site-header">
         <div className="header-inner">
-          <Link href="/" className="brand">
-            <span className="brand-badge">NUAS</span>
-            <span className="brand-text">KNUST AWARDS 2026</span>
-          </Link>
+          <NuasLogo size="sm" variant="header" href="/" />
           <nav className="header-nav" aria-label="Main Navigation">
             <Link href="/" className="nav-link">
               Home
@@ -126,7 +132,10 @@ export default async function VotePage({ searchParams }: VotePageProps) {
       </main>
 
       <footer className="site-footer">
-        <p>&copy; 2026 National Union of Adventist Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        <div className="footer-brand-wrap">
+          <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+        </div>
+        <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
         <p className="footer-sub">All voting revenue supports official citation awards, event logistics, and fellowship development.</p>
       </footer>
     </div>

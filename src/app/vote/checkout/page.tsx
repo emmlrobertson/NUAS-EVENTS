@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import CheckoutClient from "./CheckoutClient";
+import NuasLogo from "@/components/NuasLogo";
 
 export const metadata: Metadata = {
   title: "Voting Checkout — NUAS KNUST Awards 2026",
@@ -21,10 +22,7 @@ export default function CheckoutPage({ searchParams }: CheckoutPageProps) {
       <div className="page-wrapper">
         <header className="site-header">
           <div className="header-inner">
-            <Link href="/" className="brand">
-              <span className="brand-badge">NUAS</span>
-              <span className="brand-text">KNUST AWARDS 2026</span>
-            </Link>
+            <NuasLogo size="sm" variant="header" href="/" />
           </div>
         </header>
 
@@ -42,6 +40,13 @@ export default function CheckoutPage({ searchParams }: CheckoutPageProps) {
             </div>
           </div>
         </main>
+
+        <footer className="site-footer">
+          <div className="footer-brand-wrap">
+            <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+          </div>
+          <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        </footer>
       </div>
     );
   }
@@ -50,10 +55,7 @@ export default function CheckoutPage({ searchParams }: CheckoutPageProps) {
     <div className="page-wrapper">
       <header className="site-header">
         <div className="header-inner">
-          <Link href="/" className="brand">
-            <span className="brand-badge">NUAS</span>
-            <span className="brand-text">KNUST AWARDS 2026</span>
-          </Link>
+          <NuasLogo size="sm" variant="header" href="/" />
           <nav className="header-nav" aria-label="Main Navigation">
             <Link href="/vote" className="nav-link">
               &larr; Back to Cart
@@ -67,7 +69,10 @@ export default function CheckoutPage({ searchParams }: CheckoutPageProps) {
       </main>
 
       <footer className="site-footer">
-        <p>&copy; 2026 National Union of Adventist Students (NUAS), KNUST Chapter. All rights reserved.</p>
+        <div className="footer-brand-wrap">
+          <NuasLogo size="md" variant="footer" showText={true} showMotto={true} />
+        </div>
+        <p>&copy; 2026 National Union of Anglican Students (NUAS), KNUST Chapter. All rights reserved.</p>
       </footer>
     </div>
   );

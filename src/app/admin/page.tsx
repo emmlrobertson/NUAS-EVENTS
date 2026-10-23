@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentAdminUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import EventControls from "@/components/admin/EventControls";
+import NuasLogo from "@/components/NuasLogo";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,8 @@ export default async function AdminDashboardPage() {
     <div className="admin-page-wrapper">
       <header className="admin-topbar">
         <div className="admin-topbar-inner">
-          <div className="admin-brand">
+          <div className="admin-brand" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <NuasLogo size="sm" variant="admin" href="/admin" showText={false} />
             <span className="brand-badge">NUAS</span>
             <span className="admin-title">Back-Office Dashboard</span>
           </div>
