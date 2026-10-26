@@ -42,8 +42,7 @@ export default function NuasLogo({
       {showText && (
         <div className="nuas-logo-text-block">
           <div className="nuas-logo-brand-row">
-            <span className="nuas-badge-crimson">NUAS</span>
-            <span className="nuas-logo-title">KNUST AWARDS 2026</span>
+            <span className="nuas-logo-title">NUAS KNUST AWARDS 2026</span>
           </div>
           {variant !== "header" && (
             <span className="nuas-logo-sub">National Union of Anglican Students</span>

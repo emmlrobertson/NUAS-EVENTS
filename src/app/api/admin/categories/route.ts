@@ -224,3 +224,113 @@ async function handleUpdate(body: unknown, admin: { id: string; role: Role }) {
 
   return NextResponse.json({ success: true, category });
 }
+
+const deleteCategorySchema = z.object({
+  id: z.string().min(1, "Category ID is required"),
+});
+
+export async function DELETE(request: Request) {
+  if (!validateCsrfProtection(request)) {
+    return NextResponse.json({ error: "Invalid or missing CSRF origin header." }, { status: 403 });
+  }
+
+  const admin = await getCurrentAdminUser(request);
+  if (!admin || (admin.role !== Role.SUPER_ADMIN && admin.role !== Role.EVENT_ADMIN)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    let id: string | null = null;
+    const { searchParams } = new URL(request.url);
+    const queryId = searchParams.get("id");
+
+    if (queryId) {
+      id = queryId;
+    } else {
+      try {
+        const body = await request.json();
+        const parsed = deleteCategorySchema.safeParse(body);
+        if (parsed.success) {
+          id = parsed.data.id;
+        }
+      } catch {
+        // empty body
+      }
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: "Category ID is required." }, { status: 400 });
+    }
+
+    const existing = await prisma.category.findUnique({
+      where: { id },
+      include: {
+        nominees: {
+          include: {
+            _count: {
+              select: { voteAllocations: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Category not found." }, { status: 404 });
+    }
+
+    // Check if any nominee under this category has received votes or allocations
+    const hasRecordedVotes = existing.nominees.some(
+      (nom) => nom.verifiedVotes > 0 || nom._count.voteAllocations > 0
+    );
+
+    if (hasRecordedVotes) {
+      return NextResponse.json(
+        {
+          error:
+            "Cannot delete category with recorded voter allocations or verified votes. You can deactivate it instead to hide it from public voting.",
+        },
+        { status: 400 }
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Delete any nominees under this category first to ensure clean cascade
+      await tx.nominee.deleteMany({
+        where: { categoryId: id },
+      });
+
+      await tx.category.delete({
+        where: { id },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: "DELETE_CATEGORY",
+          entity: "Category",
+          entityId: id,
+          details: {
+            title: existing.title,
+            deletedNomineesCount: existing.nominees.length,
+          },
+        },
+      });
+    });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/categories");
+      revalidatePath(`/categories/${id}`);
+      revalidatePath("/vote");
+    } catch {
+      // Ignore in non-request environments
+    }
+
+    return NextResponse.json({ success: true, message: `Category "${existing.title}" deleted.` });
+  } catch (error) {
+    console.error("[Admin Category DELETE Error]", error);
+    return NextResponse.json({ error: "Failed to delete category" }, { status: 500 });
+  }
+}
+

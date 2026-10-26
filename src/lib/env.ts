@@ -45,6 +45,7 @@ const envSchema = z
     PAYMENT_PROVIDER: z.enum(["SANDBOX_MOCK", "PAYSTACK", "HUBTEL"]).default("SANDBOX_MOCK"),
     PAYMENT_WEBHOOK_SECRET: z.string().optional(),
     PAYSTACK_SECRET_KEY: z.string().optional(),
+    TICKET_SIGNING_SECRET: z.string().optional(),
     EMAIL_FROM: z.string().email().default("noreply@nuasknust.org"),
     ENABLE_LIVE_PAYMENTS: createExplicitBoolean(false),
     ALLOW_TEST_SEEDING: createExplicitBoolean(true),

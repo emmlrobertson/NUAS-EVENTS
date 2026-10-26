@@ -441,12 +441,12 @@ export default function TicketTypeManager({ eventId, initialTicketTypes }: Ticke
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                      <div className="admin-action-btn-group">
                         <button
                           type="button"
                           onClick={() => openEditModal(tt)}
-                          className="logout-btn"
-                          style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem" }}
+                          className="admin-action-btn admin-btn-edit"
+                          title="Edit ticket type"
                         >
                           Edit
                         </button>
@@ -455,13 +455,8 @@ export default function TicketTypeManager({ eventId, initialTicketTypes }: Ticke
                           type="button"
                           disabled={actionLoadingId === `toggle-${tt.id}`}
                           onClick={() => handleToggleActive(tt.id, tt.isActive)}
-                          className="logout-btn"
-                          style={{
-                            fontSize: "0.75rem",
-                            padding: "0.25rem 0.5rem",
-                            backgroundColor: tt.isActive ? "#fee2e2" : "#d1fae5",
-                            color: tt.isActive ? "#991b1b" : "#065f46",
-                          }}
+                          className={`admin-action-btn ${tt.isActive ? "admin-btn-deactivate" : "admin-btn-activate"}`}
+                          title={tt.isActive ? "Deactivate ticket sales" : "Activate ticket sales"}
                         >
                           {actionLoadingId === `toggle-${tt.id}`
                             ? "..."
@@ -475,13 +470,8 @@ export default function TicketTypeManager({ eventId, initialTicketTypes }: Ticke
                             type="button"
                             disabled={actionLoadingId === `del-${tt.id}`}
                             onClick={() => handleDelete(tt.id, tt.name)}
-                            className="logout-btn"
-                            style={{
-                              fontSize: "0.75rem",
-                              padding: "0.25rem 0.5rem",
-                              color: "#dc2626",
-                              borderColor: "#fca5a5",
-                            }}
+                            className="admin-action-btn admin-btn-delete"
+                            title="Delete ticket type"
                           >
                             {actionLoadingId === `del-${tt.id}` ? "..." : "Delete"}
                           </button>

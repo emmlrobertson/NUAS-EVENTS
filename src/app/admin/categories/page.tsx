@@ -44,8 +44,7 @@ export default async function AdminCategoriesPage({ searchParams }: AdminCategor
         <div className="admin-topbar-inner">
           <div className="admin-brand" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <NuasLogo size="sm" variant="admin" href="/admin" showText={false} />
-            <span className="brand-badge">NUAS</span>
-            <span className="admin-title">Back-Office: Categories</span>
+            <span className="admin-title">NUAS Back-Office: Categories</span>
           </div>
           <div className="admin-user-info">
             <span className="admin-name">{admin.name}</span>

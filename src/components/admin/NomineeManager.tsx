@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Category } from "@prisma/client";
+import NomineePhotoPicker from "./NomineePhotoPicker";
 
 interface NomineeWithCategory {
   id: string;
@@ -39,6 +40,19 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Edit Modal State
+  const [editingNominee, setEditingNominee] = useState<NomineeWithCategory | null>(null);
+  const [editCategoryId, setEditCategoryId] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editNomineeCode, setEditNomineeCode] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [editAvatarUrl, setEditAvatarUrl] = useState<string | null>(null);
+  const [editDisplayOrder, setEditDisplayOrder] = useState(0);
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editIsApproved, setEditIsApproved] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!categoryId) {
@@ -56,10 +70,10 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           categoryId,
-          name,
+          name: name.trim(),
           nomineeCode: nomineeCode.toUpperCase().trim(),
-          bio: bio || null,
-          avatarUrl: avatarUrl || null,
+          bio: bio.trim() || null,
+          avatarUrl: avatarUrl.trim() || null,
           displayOrder: Number(displayOrder),
           isActive: true,
           isApproved,
@@ -70,7 +84,11 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
       if (!res.ok) throw new Error(data.error || "Failed to create nominee");
 
       const selectedCat = categories.find((c) => c.id === categoryId);
-      setSuccess(`Nominee "${name}" (${nomineeCode.toUpperCase()}) added successfully${isApproved ? " (Approved)" : " (Pending Approval)"}.`);
+      setSuccess(
+        `Nominee "${name}" (${nomineeCode.toUpperCase()}) added successfully${
+          isApproved ? " (Approved)" : " (Pending Approval)"
+        }.`
+      );
       setName("");
       setNomineeCode("");
       setBio("");
@@ -97,6 +115,76 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  function openEditModal(nom: NomineeWithCategory) {
+    setEditingNominee(nom);
+    setEditCategoryId(nom.category.id);
+    setEditName(nom.name);
+    setEditNomineeCode(nom.nomineeCode);
+    setEditBio(nom.bio || "");
+    setEditAvatarUrl(nom.avatarUrl || null);
+    setEditDisplayOrder(nom.displayOrder);
+    setEditIsActive(nom.isActive);
+    setEditIsApproved(nom.isApproved);
+    setEditError(null);
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingNominee) return;
+
+    setEditLoading(true);
+    setEditError(null);
+
+    try {
+      const res = await fetch("/api/admin/nominees", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingNominee.id,
+          categoryId: editCategoryId,
+          name: editName.trim(),
+          nomineeCode: editNomineeCode.toUpperCase().trim(),
+          bio: editBio.trim() || null,
+          avatarUrl: editAvatarUrl || null,
+          displayOrder: Number(editDisplayOrder),
+          isActive: editIsActive,
+          isApproved: editIsApproved,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update nominee");
+
+      const selectedCat = categories.find((c) => c.id === editCategoryId);
+
+      setNominees((prev) =>
+        prev.map((nom) =>
+          nom.id === editingNominee.id
+            ? {
+                ...data.nominee,
+                category: {
+                  id: editCategoryId,
+                  title: selectedCat ? selectedCat.title : nom.category.title,
+                },
+              }
+            : nom
+        )
+      );
+
+      setSuccess(`Nominee "${editName}" updated successfully.`);
+      setEditingNominee(null);
+      router.refresh();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setEditError(err.message);
+      } else {
+        setEditError("Failed to update nominee details");
+      }
+    } finally {
+      setEditLoading(false);
     }
   }
 
@@ -127,7 +215,14 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
         prev.map((nom) => (nom.id === id ? { ...nom, [field]: newValue } : nom))
       );
 
-      const fieldLabel = field === "isApproved" ? (newValue ? "Approved" : "Unapproved (Pending)") : (newValue ? "Activated" : "Deactivated");
+      const fieldLabel =
+        field === "isApproved"
+          ? newValue
+            ? "Approved"
+            : "Unapproved (Pending)"
+          : newValue
+          ? "Activated"
+          : "Deactivated";
       setSuccess(`Nominee "${data.nominee.name}" was ${fieldLabel} successfully.`);
       router.refresh();
     } catch (err: unknown) {
@@ -135,6 +230,45 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
         setError(err.message);
       } else {
         setError("Error updating nominee status");
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleDeleteNominee(id: string, nomineeName: string) {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete nominee "${nomineeName}"? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setActionLoadingId(`${id}-delete`);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch("/api/admin/nominees", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to delete nominee");
+      }
+
+      setNominees((prev) => prev.filter((nom) => nom.id !== id));
+      setSuccess(`Nominee "${nomineeName}" deleted successfully.`);
+      router.refresh();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Error deleting nominee");
       }
     } finally {
       setActionLoadingId(null);
@@ -171,14 +305,14 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
           </div>
 
           <div className="form-group">
-            <label htmlFor="nom-name">Nominee Name *</label>
+            <label htmlFor="nom-name">Nominee Full Name *</label>
             <input
               id="nom-name"
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Samuel K. Mensah"
+              placeholder="e.g. John K. Mensah"
               className="admin-input"
             />
           </div>
@@ -195,28 +329,35 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
               className="admin-input"
               style={{ textTransform: "uppercase" }}
             />
+            <small
+              style={{
+                color: "var(--color-text-dim)",
+                fontSize: "0.75rem",
+                marginTop: "0.25rem",
+                display: "block",
+              }}
+            >
+              Codes must be unique across the event and uppercase (e.g. EXEC-01, SPIR-02).
+            </small>
           </div>
 
+          {/* Photo Picker Component for Creation */}
+          <NomineePhotoPicker
+            value={avatarUrl}
+            onChange={(url) => setAvatarUrl(url || "")}
+            nomineeName={name || "New Nominee"}
+            nomineeCode={nomineeCode}
+            disabled={loading}
+          />
+
           <div className="form-group">
-            <label htmlFor="nom-bio">Short Bio or Citation</label>
+            <label htmlFor="nom-bio">Nominee Citation / Bio (Optional)</label>
             <textarea
               id="nom-bio"
-              rows={2}
+              rows={3}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              placeholder="Brief biography or achievements of the nominee"
-              className="admin-input"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="nom-avatar">Avatar or Photo URL</label>
-            <input
-              id="nom-avatar"
-              type="url"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder="https://example.com/photo.jpg"
+              placeholder="Brief citation or achievements supporting this nomination"
               className="admin-input"
             />
           </div>
@@ -272,6 +413,16 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
               {nominees.map((nom) => {
                 const isActLoading = actionLoadingId === `${nom.id}-isActive`;
                 const isAppLoading = actionLoadingId === `${nom.id}-isApproved`;
+                const isDelLoading = actionLoadingId === `${nom.id}-delete`;
+
+                const initials = nom.name
+                  .trim()
+                  .split(/\s+/)
+                  .map((n) => n[0])
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .join("")
+                  .toUpperCase() || "NA";
 
                 return (
                   <tr key={nom.id}>
@@ -279,8 +430,41 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
                       <span className="nominee-code-pill">{nom.nomineeCode}</span>
                     </td>
                     <td>
-                      <strong>{nom.name}</strong>
-                      {nom.bio && <p className="table-sub">{nom.bio}</p>}
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div
+                          style={{
+                            width: "38px",
+                            height: "38px",
+                            borderRadius: "8px",
+                            overflow: "hidden",
+                            background: "linear-gradient(135deg, #1b365d 0%, #10223d 100%)",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "0.8rem",
+                            fontWeight: 700,
+                            flexShrink: 0,
+                            border: "1px solid var(--color-border-card, #e2e8f0)",
+                            boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08)",
+                          }}
+                        >
+                          {nom.avatarUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={nom.avatarUrl}
+                              alt={nom.name}
+                              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                            />
+                          ) : (
+                            initials
+                          )}
+                        </div>
+                        <div>
+                          <strong>{nom.name}</strong>
+                          {nom.bio && <p className="table-sub">{nom.bio}</p>}
+                        </div>
+                      </div>
                     </td>
                     <td>{nom.category.title}</td>
                     <td>
@@ -298,22 +482,42 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
                           nom.isApproved ? "status-published" : "status-pill-pending"
                         }`}
                       >
-                        {nom.isApproved ? "Approved" : "Pending Review"}
+                        {nom.isApproved ? (
+                          <>
+                            <span aria-hidden="true" style={{ fontSize: "0.7rem" }}>
+                              &#10003;
+                            </span>
+                            Approved
+                          </>
+                        ) : (
+                          <>
+                            <span aria-hidden="true" style={{ fontSize: "0.7rem" }}>
+                              &#9203;
+                            </span>
+                            Pending Review
+                          </>
+                        )}
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                      <div className="admin-action-btn-group">
                         <button
                           type="button"
-                          disabled={isAppLoading}
+                          disabled={isAppLoading || isDelLoading}
+                          onClick={() => openEditModal(nom)}
+                          className="admin-action-btn admin-btn-edit"
+                          title="Edit nominee details and photo"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isAppLoading || isDelLoading}
                           onClick={() => handleToggleStatus(nom.id, "isApproved", nom.isApproved)}
-                          className="logout-btn"
-                          style={{
-                            fontSize: "0.75rem",
-                            padding: "0.2rem 0.5rem",
-                            borderColor: nom.isApproved ? "#f59e0b" : "#10b981",
-                            color: nom.isApproved ? "#b45309" : "#047857",
-                          }}
+                          className={`admin-action-btn ${
+                            nom.isApproved ? "admin-btn-revoke" : "admin-btn-approve"
+                          }`}
+                          title={nom.isApproved ? "Revoke nominee approval" : "Approve nominee"}
                         >
                           {isAppLoading
                             ? "Updating..."
@@ -323,21 +527,27 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
                         </button>
                         <button
                           type="button"
-                          disabled={isActLoading}
+                          disabled={isActLoading || isDelLoading}
                           onClick={() => handleToggleStatus(nom.id, "isActive", nom.isActive)}
-                          className="logout-btn"
-                          style={{
-                            fontSize: "0.75rem",
-                            padding: "0.2rem 0.5rem",
-                            borderColor: nom.isActive ? "#ef4444" : "#3b82f6",
-                            color: nom.isActive ? "#b91c1c" : "#1d4ed8",
-                          }}
+                          className={`admin-action-btn ${
+                            nom.isActive ? "admin-btn-deactivate" : "admin-btn-activate"
+                          }`}
+                          title={nom.isActive ? "Deactivate nominee" : "Activate nominee"}
                         >
                           {isActLoading
                             ? "Updating..."
                             : nom.isActive
                             ? "Deactivate"
                             : "Activate"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isDelLoading || isAppLoading || isActLoading}
+                          onClick={() => handleDeleteNominee(nom.id, nom.name)}
+                          className="admin-action-btn admin-btn-delete"
+                          title="Delete nominee"
+                        >
+                          {isDelLoading ? "Deleting..." : "Delete"}
                         </button>
                       </div>
                     </td>
@@ -348,6 +558,214 @@ export default function NomineeManager({ categories, initialNominees }: NomineeM
           </table>
         )}
       </div>
+
+      {/* Edit Nominee Modal */}
+      {editingNominee && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "1rem",
+          }}
+        >
+          <div
+            className="manager-form-card"
+            style={{
+              maxWidth: "560px",
+              width: "100%",
+              backgroundColor: "#ffffff",
+              borderRadius: "12px",
+              padding: "1.75rem",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "1rem",
+              }}
+            >
+              <h3 className="box-title" style={{ margin: 0, fontSize: "1.15rem" }}>
+                Edit Nominee: {editingNominee.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingNominee(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  fontSize: "1.5rem",
+                  cursor: "pointer",
+                  color: "var(--color-text-muted)",
+                  lineHeight: 1,
+                }}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            {editError && (
+              <div className="admin-alert-error" style={{ marginBottom: "1rem" }}>
+                {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEdit} className="admin-form">
+              {/* Photo Picker in Edit Modal */}
+              <NomineePhotoPicker
+                value={editAvatarUrl}
+                onChange={(url) => setEditAvatarUrl(url)}
+                nomineeName={editName}
+                nomineeCode={editNomineeCode}
+                nomineeId={editingNominee.id}
+                disabled={editLoading}
+              />
+
+              <div className="form-group">
+                <label>Nominee Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="admin-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Nominee Voting Code *</label>
+                <input
+                  type="text"
+                  required
+                  value={editNomineeCode}
+                  onChange={(e) =>
+                    setEditNomineeCode(e.target.value.toUpperCase().replace(/\s+/g, "-"))
+                  }
+                  className="admin-input"
+                  style={{ textTransform: "uppercase" }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Award Category *</label>
+                <select
+                  required
+                  value={editCategoryId}
+                  onChange={(e) => setEditCategoryId(e.target.value)}
+                  className="admin-input"
+                >
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Citation / Bio</label>
+                <textarea
+                  rows={3}
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  className="admin-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Display Order</label>
+                <input
+                  type="number"
+                  value={editDisplayOrder}
+                  onChange={(e) => setEditDisplayOrder(Number(e.target.value))}
+                  className="admin-input"
+                />
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: "1.5rem",
+                  margin: "0.75rem 0 1.25rem 0",
+                  flexWrap: "wrap",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={editIsActive}
+                    onChange={(e) => setEditIsActive(e.target.checked)}
+                    style={{ width: "1rem", height: "1rem" }}
+                  />
+                  Active (Accepting Votes)
+                </label>
+
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={editIsApproved}
+                    onChange={(e) => setEditIsApproved(e.target.checked)}
+                    style={{ width: "1rem", height: "1rem" }}
+                  />
+                  Approved (Publicly Visible)
+                </label>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingNominee(null)}
+                  disabled={editLoading}
+                  className="admin-action-btn admin-btn-deactivate"
+                  style={{ padding: "0.55rem 1rem", fontSize: "0.875rem" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editLoading}
+                  className="admin-submit-btn"
+                  style={{ marginTop: 0, padding: "0.55rem 1.25rem", fontSize: "0.875rem" }}
+                >
+                  {editLoading ? "Saving Changes..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

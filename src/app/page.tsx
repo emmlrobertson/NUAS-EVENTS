@@ -27,9 +27,6 @@ export default async function HomePage() {
         <main className="main-content">
           <section className="hero-section" aria-labelledby="hero-title">
             <div className="hero-badge-group">
-              <div className="hero-crest-badge">
-                <NuasLogo size="xl" variant="hero" showText={false} />
-              </div>
               <div className="hero-kicker-wrap">
                 <span className="hero-kicker">ANNUAL GALA & CITATION CEREMONY</span>
               </div>
@@ -102,9 +99,6 @@ export default async function HomePage() {
         {/* Hero Section */}
         <section className="hero-section" aria-labelledby="hero-title">
           <div className="hero-badge-group">
-            <div className="hero-crest-badge">
-              <NuasLogo size="xl" variant="hero" showText={false} />
-            </div>
             <div className="hero-kicker-wrap">
               <span className="hero-kicker">ANNUAL GALA & AWARDS CEREMONY</span>
             </div>

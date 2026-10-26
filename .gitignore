@@ -38,3 +38,7 @@ Thumbs.db
 # TypeScript Build Info
 *.tsbuildinfo
 next-env.d.ts
+
+# Local Development Uploads
+/public/uploads
+

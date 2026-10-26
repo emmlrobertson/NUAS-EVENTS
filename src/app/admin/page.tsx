@@ -55,8 +55,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
         <div className="admin-topbar-inner">
           <div className="admin-brand" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <NuasLogo size="sm" variant="admin" href="/admin" showText={false} />
-            <span className="brand-badge">NUAS</span>
-            <span className="admin-title">Back-Office Dashboard</span>
+            <span className="admin-title">NUAS Back-Office Dashboard</span>
           </div>
           <div className="admin-user-info">
             <span className="admin-name">{admin.name}</span>

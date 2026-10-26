@@ -118,6 +118,46 @@ export default function CategoryManager({ eventId, initialCategories }: Category
     }
   }
 
+  async function handleDeleteCategory(id: string, categoryTitle: string, nomineeCount: number) {
+    const confirmPrompt =
+      nomineeCount > 0
+        ? `Are you sure you want to delete category "${categoryTitle}" and its ${nomineeCount} nominee(s)? This action cannot be undone.`
+        : `Are you sure you want to delete category "${categoryTitle}"? This action cannot be undone.`;
+
+    if (!window.confirm(confirmPrompt)) {
+      return;
+    }
+
+    setActionLoadingId(`${id}-delete`);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch("/api/admin/categories", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to delete category");
+      }
+
+      setCategories((prev) => prev.filter((cat) => cat.id !== id));
+      setSuccess(`Category "${categoryTitle}" deleted successfully.`);
+      router.refresh();
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Error deleting category");
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
   return (
     <div className="manager-grid">
       {/* Creation Card */}
@@ -203,6 +243,7 @@ export default function CategoryManager({ eventId, initialCategories }: Category
               {categories.map((cat) => {
                 const isActLoading = actionLoadingId === `${cat.id}-isActive`;
                 const isAppLoading = actionLoadingId === `${cat.id}-isApproved`;
+                const isDelLoading = actionLoadingId === `${cat.id}-delete`;
 
                 return (
                   <tr key={cat.id}>
@@ -227,22 +268,27 @@ export default function CategoryManager({ eventId, initialCategories }: Category
                           cat.isApproved ? "status-published" : "status-pill-pending"
                         }`}
                       >
-                        {cat.isApproved ? "Approved" : "Pending Review"}
+                        {cat.isApproved ? (
+                          <>
+                            <span aria-hidden="true" style={{ fontSize: "0.7rem" }}>&#10003;</span>
+                            Approved
+                          </>
+                        ) : (
+                          <>
+                            <span aria-hidden="true" style={{ fontSize: "0.7rem" }}>&#9203;</span>
+                            Pending Review
+                          </>
+                        )}
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                      <div className="admin-action-btn-group">
                         <button
                           type="button"
-                          disabled={isAppLoading}
+                          disabled={isAppLoading || isDelLoading}
                           onClick={() => handleToggleStatus(cat.id, "isApproved", cat.isApproved)}
-                          className="logout-btn"
-                          style={{
-                            fontSize: "0.75rem",
-                            padding: "0.2rem 0.5rem",
-                            borderColor: cat.isApproved ? "#f59e0b" : "#10b981",
-                            color: cat.isApproved ? "#b45309" : "#047857",
-                          }}
+                          className={`admin-action-btn ${cat.isApproved ? "admin-btn-revoke" : "admin-btn-approve"}`}
+                          title={cat.isApproved ? "Revoke category approval" : "Approve category"}
                         >
                           {isAppLoading
                             ? "Updating..."
@@ -252,21 +298,25 @@ export default function CategoryManager({ eventId, initialCategories }: Category
                         </button>
                         <button
                           type="button"
-                          disabled={isActLoading}
+                          disabled={isActLoading || isDelLoading}
                           onClick={() => handleToggleStatus(cat.id, "isActive", cat.isActive)}
-                          className="logout-btn"
-                          style={{
-                            fontSize: "0.75rem",
-                            padding: "0.2rem 0.5rem",
-                            borderColor: cat.isActive ? "#ef4444" : "#3b82f6",
-                            color: cat.isActive ? "#b91c1c" : "#1d4ed8",
-                          }}
+                          className={`admin-action-btn ${cat.isActive ? "admin-btn-deactivate" : "admin-btn-activate"}`}
+                          title={cat.isActive ? "Deactivate category" : "Activate category"}
                         >
                           {isActLoading
                             ? "Updating..."
                             : cat.isActive
                             ? "Deactivate"
                             : "Activate"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isDelLoading || isAppLoading || isActLoading}
+                          onClick={() => handleDeleteCategory(cat.id, cat.title, cat._count.nominees)}
+                          className="admin-action-btn admin-btn-delete"
+                          title="Delete category"
+                        >
+                          {isDelLoading ? "Deleting..." : "Delete"}
                         </button>
                       </div>
                     </td>

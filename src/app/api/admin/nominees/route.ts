@@ -4,12 +4,31 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAdminUser, validateCsrfProtection } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
+import { getImageStorageProvider } from "@/lib/storage/image-storage";
+
+const safeAvatarUrlSchema = z
+  .string()
+  .refine(
+    (val) => {
+      if (!val || val === "") return true;
+      if (val.startsWith("/uploads/nominees/")) return true;
+      try {
+        const u = new URL(val);
+        return u.protocol === "https:" || (process.env.NODE_ENV !== "production" && u.protocol === "http:");
+      } catch {
+        return false;
+      }
+    },
+    { message: "Avatar must be a valid secure image URL or upload path." }
+  )
+  .optional()
+  .nullable();
 
 const createNomineeSchema = z.object({
   categoryId: z.string().min(1, "Category ID is required"),
   name: z.string().min(2, "Name must be at least 2 characters"),
   bio: z.string().optional().nullable(),
-  avatarUrl: z.string().url().optional().nullable().or(z.literal("")),
+  avatarUrl: safeAvatarUrlSchema,
   nomineeCode: z.string().min(2).max(20).toUpperCase(),
   displayOrder: z.number().int().default(0),
   isActive: z.boolean().default(true),
@@ -21,7 +40,7 @@ const updateNomineeSchema = z.object({
   categoryId: z.string().optional(),
   name: z.string().min(2).optional(),
   bio: z.string().optional().nullable(),
-  avatarUrl: z.string().url().optional().nullable().or(z.literal("")),
+  avatarUrl: safeAvatarUrlSchema,
   nomineeCode: z.string().min(2).max(20).toUpperCase().optional(),
   displayOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
@@ -263,12 +282,14 @@ async function handleUpdate(body: unknown, admin: { id: string; role: Role }) {
           previous: {
             name: existing.name,
             nomineeCode: existing.nomineeCode,
+            avatarUrl: existing.avatarUrl,
             isActive: existing.isActive,
             isApproved: existing.isApproved,
           },
           updated: {
             name: updated.name,
             nomineeCode: updated.nomineeCode,
+            avatarUrl: updated.avatarUrl,
             isActive: updated.isActive,
             isApproved: updated.isApproved,
           },
@@ -278,6 +299,20 @@ async function handleUpdate(body: unknown, admin: { id: string; role: Role }) {
 
     return updated;
   });
+
+  // Clean up previous photo from storage if replaced or removed
+  if (
+    avatarUrl !== undefined &&
+    existing.avatarUrl &&
+    existing.avatarUrl !== avatarUrl
+  ) {
+    try {
+      const storage = getImageStorageProvider();
+      await storage.delete(existing.avatarUrl);
+    } catch (cleanupErr) {
+      console.warn("[Avatar Storage Cleanup Warning]", cleanupErr);
+    }
+  }
 
   try {
     revalidatePath("/");
@@ -291,3 +326,110 @@ async function handleUpdate(body: unknown, admin: { id: string; role: Role }) {
 
   return NextResponse.json({ success: true, nominee });
 }
+
+const deleteNomineeSchema = z.object({
+  id: z.string().min(1, "Nominee ID is required"),
+});
+
+export async function DELETE(request: Request) {
+  if (!validateCsrfProtection(request)) {
+    return NextResponse.json({ error: "Invalid or missing CSRF origin header." }, { status: 403 });
+  }
+
+  const admin = await getCurrentAdminUser(request);
+  if (!admin || (admin.role !== Role.SUPER_ADMIN && admin.role !== Role.EVENT_ADMIN)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    let id: string | null = null;
+    const { searchParams } = new URL(request.url);
+    const queryId = searchParams.get("id");
+
+    if (queryId) {
+      id = queryId;
+    } else {
+      try {
+        const body = await request.json();
+        const parsed = deleteNomineeSchema.safeParse(body);
+        if (parsed.success) {
+          id = parsed.data.id;
+        }
+      } catch {
+        // empty body
+      }
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: "Nominee ID is required." }, { status: 400 });
+    }
+
+    const existing = await prisma.nominee.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { voteAllocations: true },
+        },
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Nominee not found." }, { status: 404 });
+    }
+
+    if (existing.verifiedVotes > 0 || existing._count.voteAllocations > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete nominee "${existing.name}" because they have recorded votes or allocations. You can deactivate them instead to remove them from public voting.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.nominee.delete({
+        where: { id },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: "DELETE_NOMINEE",
+          entity: "Nominee",
+          entityId: id,
+          details: {
+            name: existing.name,
+            nomineeCode: existing.nomineeCode,
+            categoryId: existing.categoryId,
+            avatarUrl: existing.avatarUrl,
+          },
+        },
+      });
+    });
+
+    if (existing.avatarUrl) {
+      try {
+        const storage = getImageStorageProvider();
+        await storage.delete(existing.avatarUrl);
+      } catch (cleanupErr) {
+        console.warn("[Nominee Delete Avatar Storage Cleanup Warning]", cleanupErr);
+      }
+    }
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/categories");
+      revalidatePath(`/categories/${existing.categoryId}`);
+      revalidatePath(`/nominees/${encodeURIComponent(existing.nomineeCode)}`);
+      revalidatePath("/vote");
+    } catch {
+      // Ignore in non-request environments
+    }
+
+    return NextResponse.json({ success: true, message: `Nominee "${existing.name}" deleted.` });
+  } catch (error) {
+    console.error("[Admin Nominee DELETE Error]", error);
+    return NextResponse.json({ error: "Failed to delete nominee" }, { status: 500 });
+  }
+}
+
